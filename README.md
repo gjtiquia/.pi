@@ -11,3 +11,5 @@ https://pi.dev
 - ignored `/agent/sessions/` cuz it grows a lot and i dun see a need to back these up (yet)
 - ignored `/agent/models-store.json` cuz it regenerates and i dun see a need to back these up (yet)
 - ignored `/agent/auth.json` for obvious reasons
+
+
