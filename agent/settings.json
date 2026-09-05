@@ -1,8 +1,12 @@
 {
-  "lastChangelogVersion": "0.84.4",
+  "lastChangelogVersion": "0.85.0",
   "theme": "dark",
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-5.6-luna",
+  "defaultModel": "gpt-5.6-sol",
   "tuiMode": "regular",
-  "hideThinkingBlock": true
+  "hideThinkingBlock": true,
+  "packages": [
+    "npm:pi-web-access",
+    "npm:pi-subagents"
+  ]
 }
