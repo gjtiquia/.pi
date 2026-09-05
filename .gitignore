@@ -3,3 +3,5 @@
 /agent/models-store.json
 /agent/trust.json
 /web-search-cache
+/agent/run-history.jsonl
+/agent/missions
