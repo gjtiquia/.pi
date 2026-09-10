@@ -1,10 +1,27 @@
+import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { isSafeCommand } from "./utils.ts";
 
 const DISCUSS_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "questionnaire"];
 const DISCUSS_MODE_DISABLED_TOOLS = new Set(["edit", "write", "subagent", "bg_wait", "subagent_supervisor"]);
+const DISCUSS_MODE_STATE_TYPE = "discuss-mode-state";
+
+const DISCUSS_MODE_ACTIVE_MESSAGE = `[DISCUSS MODE ACTIVE]
+You are in discuss mode - a read-only exploration mode.
+
+Restrictions:
+- Built-in edit and write tools are disabled
+- Subagent tools are disabled
+- Bash is restricted to an allowlist of read-only commands
+
+Do not make changes. Discuss, inspect, and analyze only.`;
+
+const DISCUSS_MODE_DISABLED_MESSAGE = `[DISCUSS MODE DISABLED]
+This supersedes all earlier discuss-mode instructions.
+Normal coding mode is active. Editing, writing, and subagent use are permitted.`;
 
 export default function discussModeExtension(pi: ExtensionAPI): void {
+	const instanceGeneration = randomUUID();
 	let discussModeEnabled = false;
 	let toolsBeforeDiscussMode: string[] | undefined;
 
@@ -32,6 +49,18 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 		toolsBeforeDiscussMode = undefined;
 	}
 
+	function announceModeState(): void {
+		pi.sendMessage(
+			{
+				customType: DISCUSS_MODE_STATE_TYPE,
+				content: discussModeEnabled ? DISCUSS_MODE_ACTIVE_MESSAGE : DISCUSS_MODE_DISABLED_MESSAGE,
+				display: false,
+				details: { generation: instanceGeneration },
+			},
+			{ deliverAs: "nextTurn" },
+		);
+	}
+
 	function toggleDiscussMode(ctx: ExtensionContext): void {
 		discussModeEnabled = !discussModeEnabled;
 
@@ -43,6 +72,7 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 			ctx.ui.notify("Discuss mode disabled. Normal tool access restored.");
 		}
 
+		announceModeState();
 		updateStatus(ctx);
 	}
 
@@ -63,23 +93,21 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("before_agent_start", async () => {
-		if (!discussModeEnabled) return;
+	// Keep state markers scoped to this extension instance. Mode enforcement
+	// resets to disabled on reload/resume, so markers from older instances would
+	// otherwise contradict the current tool state.
+	pi.on("context", async (event) => ({
+		messages: event.messages.filter((message) => {
+			if (message.role !== "custom") return true;
+			if (message.customType !== DISCUSS_MODE_STATE_TYPE) return true;
 
-		return {
-			message: {
-				customType: "discuss-mode-context",
-				content: `[DISCUSS MODE ACTIVE]
-You are in discuss mode - a read-only exploration mode.
-
-Restrictions:
-- Built-in edit and write tools are disabled
-- Subagent tools are disabled
-- Bash is restricted to an allowlist of read-only commands
-
-Do not make changes. Discuss, inspect, and analyze only.`,
-				display: false,
-			},
-		};
-	});
+			const details = message.details;
+			return (
+				typeof details === "object" &&
+				details !== null &&
+				"generation" in details &&
+				details.generation === instanceGeneration
+			);
+		}),
+	}));
 }
