@@ -8,6 +8,7 @@ import {
 	type ExtensionAPI,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 const CHILD_ENV = "PI_MINIMAL_SUBAGENT_CHILD";
@@ -46,6 +47,12 @@ function truncateForModel(text: string): string {
 	return `${result.content}\n\n[Output truncated. Full output is preserved in the tool details.]`;
 }
 
+function oneLine(text: string, maxLength = 120): string {
+	const normalized = text.replace(/\s+/g, " ").trim();
+	if (normalized.length <= maxLength) return normalized;
+	return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
 export default function minimalSubagent(pi: ExtensionAPI): void {
 	// Child processes must not receive the delegation tool themselves.
 	if (process.env[CHILD_ENV] === "1") return;
@@ -54,13 +61,18 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 		name: "subagent",
 		label: "Subagent",
 		description:
-			"Delegate one task to a generic subagent in an isolated Pi process. The child inherits the active model, thinking level, working directory, and active tools except subagent.",
+			"Delegate one task to a generic subagent in an isolated Pi process. The child inherits the active model, thinking level, working directory, and active tools except subagent. Give each call a concise summary for display. Multiple subagent calls in one turn run in parallel; call subagent again after a result when later work depends on it.",
 		promptSnippet: "Delegate a bounded task to one generic isolated subagent",
+		promptGuidelines: [
+			"For every subagent call, write summary as a concise one-line description of the instructions being delegated.",
+			"Run independent subagent calls together in one turn for parallel work; run dependent subagent calls in later turns for sequential work.",
+		],
 		parameters: Type.Object({
+			summary: Type.String({ description: "Concise one-line summary shown to the user" }),
 			task: Type.String({ description: "The complete task to delegate" }),
 		}),
 
-		async execute(_toolCallId, { task }, signal, onUpdate, ctx) {
+		async execute(_toolCallId, { summary, task }, signal, onUpdate, ctx) {
 			const args = ["--mode", "json", "-p", "--no-session"];
 
 			if (ctx.model) args.push("--model", `${ctx.model.provider}/${ctx.model.id}`);
@@ -110,7 +122,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 
 					onUpdate?.({
 						content: [{ type: "text", text: finalOutput || "Subagent is working…" }],
-						details: { task, messages },
+						details: { summary: oneLine(summary), task, messages },
 					});
 				};
 
@@ -149,8 +161,17 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			const output = finalOutput || "Subagent completed without a text response.";
 			return {
 				content: [{ type: "text", text: truncateForModel(output) }],
-				details: { task, output, messages },
+				details: { summary: oneLine(summary), task, output, messages },
 			};
+		},
+
+		renderCall(args, theme) {
+			const summary = oneLine(args.summary || args.task || "Preparing delegated task…");
+			return new Text(
+				theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", summary),
+				0,
+				0,
+			);
 		},
 	});
 }
