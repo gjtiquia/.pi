@@ -22,6 +22,8 @@ For repository workflows that use issue tracking or Wayfinder, recommend running
 
 - **Sharpen an idea in a repository** → `/skill:matt-grill-with-docs`. It combines the relentless interview with active domain modeling, updating `CONTEXT.md` and offering ADRs when warranted.
 - **Sharpen an idea without repository documentation** → `/skill:matt-grill-me`. It runs the same interview without creating domain documents.
+- **Turn a completed discussion into a durable implementation spec** → `/skill:matt-to-spec`. It synthesizes the conversation without reopening requirements and publishes the result to the configured issue tracker.
+- **Split a spec or plan into executable vertical slices** → `/skill:matt-to-tickets`. It creates tracker tickets with acceptance criteria and blocking relationships.
 - **Plan a huge, foggy, multi-session effort** → `/skill:matt-wayfinder`. Use only when the path to the destination cannot fit in one session; it maps decision tickets rather than implementation work.
 - **Answer a design question with something runnable or visible** → `/skill:matt-prototype`. Use for state/logic questions or several substantially different UI directions.
 - **Survey architectural friction** → `/skill:matt-improve-codebase-architecture`. It finds deepening opportunities, presents a visual report, and grills through the chosen candidate.
@@ -49,6 +51,10 @@ These are model-invoked skills that can also be requested directly:
 
 Use `matt-grill-with-docs` when a repository exists and the decisions should leave a durable domain-language trail. Use `matt-grill-me` for plans, writing, and decisions with no repository context.
 
+### Grilling or to-spec?
+
+Use grilling while requirements or decisions are still unresolved. Use `matt-to-spec` once the discussion is complete and needs to become a durable implementation contract; it synthesizes rather than interviews.
+
 ### Grilling or prototype?
 
 Use grilling while answers can be settled through decisions and facts. Detour through `matt-prototype` when the user needs to interact with behavior or compare concrete visual alternatives.
@@ -56,6 +62,14 @@ Use grilling while answers can be settled through decisions and facts. Detour th
 ### Grill with docs or Wayfinder?
 
 Use `matt-grill-with-docs` when the idea can be understood in one session. Use `matt-wayfinder` when unresolved decisions form a multi-session frontier and need a shared issue-tracker map.
+
+### Wayfinder or to-tickets?
+
+Use `matt-wayfinder` when the route is still foggy and decisions remain. Use `matt-to-tickets` when the destination is already specified and only implementation slicing remains.
+
+### To-spec or to-tickets?
+
+Use `matt-to-spec` to preserve the complete product and technical contract. Then use `matt-to-tickets` when the work is too large for one implementation session; for small work, implement directly from the spec.
 
 ### Codebase design or architecture improvement?
 
