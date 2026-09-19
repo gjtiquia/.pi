@@ -28,6 +28,7 @@ For repository workflows that use issue tracking or Wayfinder, recommend running
 - **Answer a design question with something runnable or visible** → `/skill:matt-prototype`. Use for state/logic questions or several substantially different UI directions.
 - **Survey architectural friction** → `/skill:matt-improve-codebase-architecture`. It finds deepening opportunities, presents a visual report, and grills through the chosen candidate.
 - **Research facts from primary sources** → `/skill:matt-research`. It delegates reading and records cited findings in the repository.
+- **Triage incoming issues or external pull requests** → `/skill:matt-triage`. It verifies claims, fills requirement gaps, and produces durable agent briefs with tracker states.
 - **Implement a spec or ticket** → `/skill:matt-implement`. It uses `matt-tdd` where possible, runs project checks, and closes with `matt-code-review`.
 - **Build one behavior test-first** → `/skill:matt-tdd`. Use for a direct red-green loop without the larger implementation wrapper.
 - **Review a branch or work-in-progress diff** → `/skill:matt-code-review`. It reviews Standards and Spec as separate axes.
@@ -70,6 +71,10 @@ Use `matt-wayfinder` when the route is still foggy and decisions remain. Use `ma
 ### To-spec or to-tickets?
 
 Use `matt-to-spec` to preserve the complete product and technical contract. Then use `matt-to-tickets` when the work is too large for one implementation session; for small work, implement directly from the spec.
+
+### Triage or to-tickets?
+
+Use `matt-triage` only for raw incoming reports and requests that need evaluation. Tickets created by `matt-to-tickets` are already agent-ready and should not be triaged.
 
 ### Codebase design or architecture improvement?
 
