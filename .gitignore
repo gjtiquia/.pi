@@ -6,3 +6,4 @@
 /agent/run-history.jsonl
 /agent/missions
 /agent/web-search-cache
+/agent/extensions/**/node_modules/
