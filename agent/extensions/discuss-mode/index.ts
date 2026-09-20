@@ -1,9 +1,18 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { isSafeCommand } from "./utils.ts";
 
-const DISCUSS_MODE_TOOLS = ["read", "bash", "grep", "find", "ls", "questionnaire"];
-const DISCUSS_MODE_DISABLED_TOOLS = new Set(["edit", "write", "subagent", "bg_wait", "subagent_supervisor"]);
+const DISCUSS_MODE_TOOLS = [
+	"read",
+	"bash",
+	"grep",
+	"find",
+	"ls",
+	"questionnaire",
+	"subagent",
+	"bg_wait",
+	"subagent_supervisor",
+];
+const DISCUSS_MODE_DISABLED_TOOLS = new Set(["edit", "write"]);
 const DISCUSS_MODE_STATE_TYPE = "discuss-mode-state";
 
 const DISCUSS_MODE_ACTIVE_MESSAGE = `[DISCUSS MODE ACTIVE]
@@ -11,8 +20,8 @@ You are in discuss mode - a read-only exploration mode.
 
 Restrictions:
 - Built-in edit and write tools are disabled
-- Subagent tools are disabled
-- Bash is restricted to an allowlist of read-only commands
+- Bash and subagents remain available for exploration
+- Bash is not sandboxed; do not use it to make changes
 
 Do not make changes. Discuss, inspect, and analyze only.`;
 
@@ -66,7 +75,7 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 
 		if (discussModeEnabled) {
 			enableDiscussModeTools();
-			ctx.ui.notify("Discuss mode enabled. Write and subagent tools disabled.");
+			ctx.ui.notify("Discuss mode enabled. Built-in edit and write tools disabled.");
 		} else {
 			restoreNormalTools();
 			ctx.ui.notify("Discuss mode disabled. Normal tool access restored.");
@@ -79,18 +88,6 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("discuss", {
 		description: "Toggle discuss mode (read-only exploration)",
 		handler: async (_args, ctx) => toggleDiscussMode(ctx),
-	});
-
-	pi.on("tool_call", async (event) => {
-		if (!discussModeEnabled || event.toolName !== "bash") return;
-
-		const command = event.input.command as string;
-		if (!isSafeCommand(command)) {
-			return {
-				block: true,
-				reason: `Discuss mode: command blocked (not allowlisted). Use /discuss to disable discuss mode first.\nCommand: ${command}`,
-			};
-		}
 	});
 
 	// Keep state markers scoped to this extension instance. Mode enforcement
