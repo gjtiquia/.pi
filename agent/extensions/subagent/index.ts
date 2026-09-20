@@ -12,6 +12,8 @@ import {
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
+const SUBAGENT_SESSION_ROOT_ENV = "PI_SUBAGENT_SESSION_ROOT";
+
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
 	const currentScript = process.argv[1];
 	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
@@ -107,15 +109,20 @@ function toolActivity(toolName: string, args: Record<string, unknown> | undefine
 			return "searching the web";
 		case "agent_browser":
 			return "using the browser";
+		case "subagent":
+			return "waiting for subagent";
 		default:
 			return `using ${toolName.replaceAll("_", " ")}`;
 	}
 }
 
-function childSessionDirectory(
+function subagentSessionRoot(
 	parentSessionFile: string | undefined,
 	parentSessionId: string,
 ): string {
+	const inheritedRoot = process.env[SUBAGENT_SESSION_ROOT_ENV];
+	if (inheritedRoot) return path.resolve(inheritedRoot);
+
 	if (parentSessionFile) {
 		return path.join(path.dirname(parentSessionFile), "subagent-sessions", parentSessionId);
 	}
@@ -196,7 +203,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			resumeSessionId: Type.Optional(
 				Type.String({
 					description:
-						"Exact session ID of a stopped child belonging to this parent session. Continues that child session instead of creating a new one.",
+						"Exact session ID of a stopped subagent in this root delegation tree. Continues that session instead of creating a new one.",
 				}),
 			),
 		}),
@@ -208,7 +215,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 
 			const parentSessionId = ctx.sessionManager.getSessionId();
 			const parentSessionFile = ctx.sessionManager.getSessionFile() ?? undefined;
-			const sessionDir = childSessionDirectory(parentSessionFile, parentSessionId);
+			const sessionDir = subagentSessionRoot(parentSessionFile, parentSessionId);
 			fs.mkdirSync(sessionDir, { recursive: true });
 
 			const resumed = resumeSessionId !== undefined;
@@ -219,7 +226,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 
 			if (resumeSessionId && !childSessionPath) {
 				throw new Error(
-					`Cannot resume child session ${resumeSessionId}: no matching session belongs to parent ${parentSessionId}.`,
+					`Cannot resume subagent session ${resumeSessionId}: no matching session belongs to this root delegation tree.`,
 				);
 			}
 			if (resumeSessionId && activeChildSessions.has(resumeSessionId)) {
@@ -279,6 +286,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				const exitCode = await new Promise<number>((resolve, reject) => {
 					const child = spawn(invocation.command, invocation.args, {
 						cwd: ctx.cwd,
+						env: { ...process.env, [SUBAGENT_SESSION_ROOT_ENV]: sessionDir },
 						shell: false,
 						stdio: ["ignore", "pipe", "pipe"],
 					});
