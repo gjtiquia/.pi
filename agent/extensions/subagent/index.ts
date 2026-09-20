@@ -12,8 +12,6 @@ import {
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
-const CHILD_ENV = "PI_MINIMAL_SUBAGENT_CHILD";
-
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
 	const currentScript = process.argv[1];
 	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
@@ -173,16 +171,13 @@ function eventActivity(event: any): string | undefined {
 }
 
 export default function minimalSubagent(pi: ExtensionAPI): void {
-	// Child processes must not receive the delegation tool themselves.
-	if (process.env[CHILD_ENV] === "1") return;
-
 	const activeChildSessions = new Set<string>();
 
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
 		description:
-			"Delegate one task to a generic subagent in an isolated Pi process. The child inherits the active model, thinking level, working directory, and active tools except subagent. Child sessions are retained outside the normal session list. To continue a stopped child, provide its exact resumeSessionId. Give each call a concise summary for display. Multiple subagent calls in one turn run in parallel; call subagent again after a result when later work depends on it.",
+			"Delegate one task to a generic subagent in an isolated Pi process. The child inherits the active model, thinking level, working directory, and active tools, including subagent delegation. Child sessions are retained outside the normal session list. To continue a stopped child, provide its exact resumeSessionId. Give each call a concise summary for display. Multiple subagent calls in one turn run in parallel; call subagent again after a result when later work depends on it.",
 		promptSnippet: "Delegate a bounded task to one generic isolated subagent",
 		promptGuidelines: [
 			"For every subagent call, write summary as a concise one-line description of the instructions being delegated.",
@@ -239,7 +234,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			if (ctx.model) args.push("--model", `${ctx.model.provider}/${ctx.model.id}`);
 			if (ctx.thinkingLevel) args.push("--thinking", ctx.thinkingLevel);
 
-			const childTools = pi.getActiveTools().filter((name) => name !== "subagent");
+			const childTools = pi.getActiveTools();
 			if (childTools.length > 0) args.push("--tools", childTools.join(","));
 
 			args.push(task);
@@ -284,7 +279,6 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				const exitCode = await new Promise<number>((resolve, reject) => {
 					const child = spawn(invocation.command, invocation.args, {
 						cwd: ctx.cwd,
-						env: { ...process.env, [CHILD_ENV]: "1" },
 						shell: false,
 						stdio: ["ignore", "pipe", "pipe"],
 					});
