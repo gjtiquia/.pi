@@ -1,17 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const DISCUSS_MODE_TOOLS = [
-	"read",
-	"bash",
-	"grep",
-	"find",
-	"ls",
-	"questionnaire",
-	"subagent",
-	"bg_wait",
-	"subagent_supervisor",
-];
 const DISCUSS_MODE_DISABLED_TOOLS = new Set(["edit", "write"]);
 const DISCUSS_MODE_STATE_TYPE = "discuss-mode-state";
 
@@ -43,12 +32,9 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 
 	function enableDiscussModeTools(): void {
 		toolsBeforeDiscussMode = pi.getActiveTools();
-		pi.setActiveTools([
-			...new Set([
-				...toolsBeforeDiscussMode.filter((name) => !DISCUSS_MODE_DISABLED_TOOLS.has(name)),
-				...DISCUSS_MODE_TOOLS,
-			]),
-		]);
+		pi.setActiveTools(
+			toolsBeforeDiscussMode.filter((name) => !DISCUSS_MODE_DISABLED_TOOLS.has(name)),
+		);
 	}
 
 	function restoreNormalTools(): void {
