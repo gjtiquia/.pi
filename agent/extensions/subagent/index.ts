@@ -194,8 +194,9 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			summary: Type.String({ description: "Concise one-line summary shown to the user" }),
 			task: Type.String({ description: "The complete task to delegate" }),
 			stallTimeoutSeconds: Type.Integer({
+				minimum: 25,
 				description:
-					"Seconds of continuous child inactivity before aborting it. Choose deliberately based on the longest legitimate silent operation expected.",
+					"Seconds of continuous child inactivity before aborting it. Must be at least 25 seconds so the 15-second warning has a visible countdown. Choose deliberately based on the longest legitimate silent operation expected.",
 			}),
 			resumeSessionId: Type.Optional(
 				Type.String({
@@ -206,8 +207,8 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 		}),
 
 		async execute(_toolCallId, { summary, task, stallTimeoutSeconds, resumeSessionId }, signal, onUpdate, ctx) {
-			if (!Number.isInteger(stallTimeoutSeconds) || stallTimeoutSeconds <= 0) {
-				throw new Error("stallTimeoutSeconds must be a positive integer");
+			if (!Number.isInteger(stallTimeoutSeconds) || stallTimeoutSeconds < 25) {
+				throw new Error("stallTimeoutSeconds must be an integer of at least 25 seconds");
 			}
 
 			const parentSessionId = ctx.sessionManager.getSessionId();
