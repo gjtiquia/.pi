@@ -1,25 +1,23 @@
-import { randomUUID } from "node:crypto";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const DISCUSS_MODE_DISABLED_TOOLS = new Set(["edit", "write"]);
 const DISCUSS_MODE_STATE_TYPE = "discuss-mode-state";
 
 const DISCUSS_MODE_ACTIVE_MESSAGE = `[DISCUSS MODE ACTIVE]
-You are in discuss mode - a read-only exploration mode.
+You are in discuss mode for exploration and analysis.
 
 Restrictions:
-- Built-in edit and write tools are disabled
-- Bash and subagents remain available for exploration
-- Bash is not sandboxed; do not use it to make changes
+- The edit and write tools are disabled
+- Other active tools remain available
+- Do not use any available tool to make changes
 
-Do not make changes. Discuss, inspect, and analyze only.`;
+Discuss, inspect, and analyze only.`;
 
 const DISCUSS_MODE_DISABLED_MESSAGE = `[DISCUSS MODE DISABLED]
-This supersedes all earlier discuss-mode instructions.
-Normal coding mode is active. Editing, writing, and subagent use are permitted.`;
+This supersedes earlier discuss-mode instructions.
+The original tool set is restored. Normal coding mode is active.`;
 
 export default function discussModeExtension(pi: ExtensionAPI): void {
-	const instanceGeneration = randomUUID();
 	let discussModeEnabled = false;
 	let toolsBeforeDiscussMode: string[] | undefined;
 
@@ -49,8 +47,7 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 			{
 				customType: DISCUSS_MODE_STATE_TYPE,
 				content: discussModeEnabled ? DISCUSS_MODE_ACTIVE_MESSAGE : DISCUSS_MODE_DISABLED_MESSAGE,
-				display: false,
-				details: { generation: instanceGeneration },
+				display: true,
 			},
 			{ deliverAs: "nextTurn" },
 		);
@@ -72,25 +69,7 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.registerCommand("discuss", {
-		description: "Toggle discuss mode (read-only exploration)",
-		handler: async (_args, ctx) => toggleDiscussMode(ctx),
+		description: "Toggle discuss mode (exploration and analysis)",
+		handler: (_args, ctx) => toggleDiscussMode(ctx),
 	});
-
-	// Keep state markers scoped to this extension instance. Mode enforcement
-	// resets to disabled on reload/resume, so markers from older instances would
-	// otherwise contradict the current tool state.
-	pi.on("context", async (event) => ({
-		messages: event.messages.filter((message) => {
-			if (message.role !== "custom") return true;
-			if (message.customType !== DISCUSS_MODE_STATE_TYPE) return true;
-
-			const details = message.details;
-			return (
-				typeof details === "object" &&
-				details !== null &&
-				"generation" in details &&
-				details.generation === instanceGeneration
-			);
-		}),
-	}));
 }
