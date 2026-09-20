@@ -1,6 +1,5 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-const DISCUSS_MODE_DISABLED_TOOLS = new Set(["edit", "write"]);
 const DISCUSS_MODE_STATE_TYPE = "discuss-mode-state";
 
 const DISCUSS_MODE_ACTIVE_MESSAGE = `[DISCUSS MODE ACTIVE]
@@ -15,31 +14,15 @@ Discuss, inspect, and analyze only.`;
 
 const DISCUSS_MODE_DISABLED_MESSAGE = `[DISCUSS MODE DISABLED]
 This supersedes earlier discuss-mode instructions.
-The original tool set is restored. Normal coding mode is active.`;
+Edit and write tool calls are permitted again. Normal coding mode is active.`;
 
 export default function discussModeExtension(pi: ExtensionAPI): void {
 	let discussModeEnabled = false;
-	let toolsBeforeDiscussMode: string[] | undefined;
-
 	function updateStatus(ctx: ExtensionContext): void {
 		ctx.ui.setStatus(
 			"discuss-mode",
 			discussModeEnabled ? ctx.ui.theme.fg("warning", "💬 discuss") : undefined,
 		);
-	}
-
-	function enableDiscussModeTools(): void {
-		toolsBeforeDiscussMode = pi.getActiveTools();
-		pi.setActiveTools(
-			toolsBeforeDiscussMode.filter((name) => !DISCUSS_MODE_DISABLED_TOOLS.has(name)),
-		);
-	}
-
-	function restoreNormalTools(): void {
-		if (toolsBeforeDiscussMode) {
-			pi.setActiveTools(toolsBeforeDiscussMode);
-		}
-		toolsBeforeDiscussMode = undefined;
 	}
 
 	function announceModeState(): void {
@@ -56,13 +39,11 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 	function toggleDiscussMode(ctx: ExtensionContext): void {
 		discussModeEnabled = !discussModeEnabled;
 
-		if (discussModeEnabled) {
-			enableDiscussModeTools();
-			ctx.ui.notify("Discuss mode enabled. Built-in edit and write tools disabled.");
-		} else {
-			restoreNormalTools();
-			ctx.ui.notify("Discuss mode disabled. Normal tool access restored.");
-		}
+		ctx.ui.notify(
+			discussModeEnabled
+				? "Discuss mode enabled. Edit and write tool calls are blocked."
+				: "Discuss mode disabled. Edit and write tool calls are permitted.",
+		);
 
 		announceModeState();
 		updateStatus(ctx);
@@ -71,5 +52,15 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("discuss", {
 		description: "Toggle discuss mode (exploration and analysis)",
 		handler: (_args, ctx) => toggleDiscussMode(ctx),
+	});
+
+	pi.on("tool_call", (event) => {
+		if (!discussModeEnabled) return;
+		if (event.toolName !== "edit" && event.toolName !== "write") return;
+
+		return {
+			block: true,
+			reason: `Discuss mode: ${event.toolName} tool calls are disabled.`,
+		};
 	});
 }
