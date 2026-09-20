@@ -15,6 +15,8 @@ function sendNativeNotification(title: string, message: string): Promise<void> {
 }
 
 export default function (pi: ExtensionAPI) {
+	if (process.env.PI_SUBAGENT_DEPTH) return;
+
 	pi.on("agent_settled", async (_event, ctx) => {
 		let message = basename(ctx.cwd) || ctx.cwd;
 

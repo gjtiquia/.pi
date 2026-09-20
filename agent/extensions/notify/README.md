@@ -24,5 +24,6 @@ macOS may prompt for notification permission for `terminal-notifier`. Allow it i
 ## Development
 
 - The extension listens for Pi's `agent_settled` event.
+- Subagent processes do not notify; only the root Pi session sends a notification.
 - Commit `package.json` and `package-lock.json`.
 - Do not commit `node_modules/`; it is ignored by the repository's `.gitignore`.
