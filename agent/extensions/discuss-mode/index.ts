@@ -1,6 +1,8 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const DISCUSS_MODE_STATE_TYPE = "discuss-mode-state";
+const DISCUSS_MODE_ENV = "PI_DISCUSS_MODE";
+const SUBAGENT_DEPTH_ENV = "PI_SUBAGENT_DEPTH";
 
 const DISCUSS_MODE_ACTIVE_MESSAGE = `[DISCUSS MODE ACTIVE]
 You are in discuss mode for exploration and analysis.
@@ -18,6 +20,13 @@ Edit and write tool calls are permitted again. Normal coding mode is active.`;
 
 export default function discussModeExtension(pi: ExtensionAPI): void {
 	let discussModeEnabled = false;
+
+	// A root extension reload disables discuss mode. Subagents retain the flag so
+	// their descendants inherit the same write-tool restriction.
+	if (process.env[SUBAGENT_DEPTH_ENV] === undefined) {
+		delete process.env[DISCUSS_MODE_ENV];
+	}
+
 	function updateStatus(ctx: ExtensionContext): void {
 		ctx.ui.setStatus(
 			"discuss-mode",
@@ -38,6 +47,8 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 
 	function toggleDiscussMode(ctx: ExtensionContext): void {
 		discussModeEnabled = !discussModeEnabled;
+		if (discussModeEnabled) process.env[DISCUSS_MODE_ENV] = "1";
+		else delete process.env[DISCUSS_MODE_ENV];
 
 		ctx.ui.notify(
 			discussModeEnabled

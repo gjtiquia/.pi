@@ -18,6 +18,7 @@ const SUBAGENT_PARENT_SESSION_ID_ENV = "PI_SUBAGENT_PARENT_SESSION_ID";
 const SUBAGENT_DEPTH_ENV = "PI_SUBAGENT_DEPTH";
 const SUBAGENT_SUMMARY_ENV = "PI_SUBAGENT_SUMMARY";
 const SUBAGENT_ANCESTRY_ENV = "PI_SUBAGENT_ANCESTRY";
+const DISCUSS_MODE_ENV = "PI_DISCUSS_MODE";
 const MAX_SUBAGENT_DEPTH = 100;
 const METADATA_DIRECTORY = ".metadata";
 
@@ -427,9 +428,12 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			if (ctx.model) args.push("--model", `${ctx.model.provider}/${ctx.model.id}`);
 			if (ctx.thinkingLevel) args.push("--thinking", ctx.thinkingLevel);
 
-			const childTools = childDepth < MAX_SUBAGENT_DEPTH
-				? pi.getActiveTools()
-				: pi.getActiveTools().filter((name) => name !== "subagent");
+			const discussModeEnabled = process.env[DISCUSS_MODE_ENV] === "1";
+			const childTools = pi.getActiveTools().filter((name) => {
+				if (childDepth >= MAX_SUBAGENT_DEPTH && name === "subagent") return false;
+				if (discussModeEnabled && (name === "edit" || name === "write")) return false;
+				return true;
+			});
 			if (childTools.length > 0) args.push("--tools", childTools.join(","));
 
 			args.push(task);
