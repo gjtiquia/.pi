@@ -6,6 +6,7 @@ import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	type ExtensionAPI,
+	getAgentDir,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
@@ -65,6 +66,9 @@ interface SubagentDetails {
 	activity: string;
 	status: SubagentStatus;
 	stallTimeoutSeconds: number;
+	childSessionId?: string;
+	childSessionPath?: string;
+	resumed: boolean;
 	output?: string;
 }
 
@@ -110,6 +114,32 @@ function toolActivity(toolName: string, args: Record<string, unknown> | undefine
 	}
 }
 
+function childSessionDirectory(
+	parentSessionFile: string | undefined,
+	parentSessionId: string,
+): string {
+	if (parentSessionFile) {
+		return path.join(path.dirname(parentSessionFile), "subagent-sessions", parentSessionId);
+	}
+	return path.join(getAgentDir(), "subagent-sessions", parentSessionId);
+}
+
+function findChildSessionPath(sessionDir: string, sessionId: string): string | undefined {
+	try {
+		const suffix = `_${sessionId}.jsonl`;
+		const match = fs
+			.readdirSync(sessionDir, { withFileTypes: true })
+			.find((entry) => entry.isFile() && entry.name.endsWith(suffix));
+		return match ? path.join(sessionDir, match.name) : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+function sessionPathFromHeader(sessionDir: string, id: string, timestamp: string): string {
+	return path.join(sessionDir, `${timestamp.replace(/[:.]/g, "-")}_${id}.jsonl`);
+}
+
 function eventActivity(event: any): string | undefined {
 	switch (event.type) {
 		case "agent_start":
@@ -146,15 +176,18 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 	// Child processes must not receive the delegation tool themselves.
 	if (process.env[CHILD_ENV] === "1") return;
 
+	const activeChildSessions = new Set<string>();
+
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
 		description:
-			"Delegate one task to a generic subagent in an isolated Pi process. The child inherits the active model, thinking level, working directory, and active tools except subagent. Give each call a concise summary for display. Multiple subagent calls in one turn run in parallel; call subagent again after a result when later work depends on it.",
+			"Delegate one task to a generic subagent in an isolated Pi process. The child inherits the active model, thinking level, working directory, and active tools except subagent. Child sessions are retained outside the normal session list. To continue a stopped child, provide its exact resumeSessionId. Give each call a concise summary for display. Multiple subagent calls in one turn run in parallel; call subagent again after a result when later work depends on it.",
 		promptSnippet: "Delegate a bounded task to one generic isolated subagent",
 		promptGuidelines: [
 			"For every subagent call, write summary as a concise one-line description of the instructions being delegated.",
 			"For every subagent call, deliberately choose stallTimeoutSeconds based on the longest legitimate period without JSON events expected for that task. Use longer timeouts for builds, tests, installations, or other potentially silent commands.",
+			"Use resumeSessionId only to continue a child that has already stopped. If that continuation fails, launch a fresh subagent and include the failed child session path plus instructions to inspect the existing working tree. Avoid unlimited retry loops.",
 			"Run independent subagent calls together in one turn for parallel work; run dependent subagent calls in later turns for sequential work.",
 		],
 		parameters: Type.Object({
@@ -164,14 +197,43 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				description:
 					"Seconds of continuous child inactivity before aborting it. Choose deliberately based on the longest legitimate silent operation expected.",
 			}),
+			resumeSessionId: Type.Optional(
+				Type.String({
+					description:
+						"Exact session ID of a stopped child belonging to this parent session. Continues that child session instead of creating a new one.",
+				}),
+			),
 		}),
 
-		async execute(_toolCallId, { summary, task, stallTimeoutSeconds }, signal, onUpdate, ctx) {
+		async execute(_toolCallId, { summary, task, stallTimeoutSeconds, resumeSessionId }, signal, onUpdate, ctx) {
 			if (!Number.isInteger(stallTimeoutSeconds) || stallTimeoutSeconds <= 0) {
 				throw new Error("stallTimeoutSeconds must be a positive integer");
 			}
 
-			const args = ["--mode", "json", "-p", "--no-session"];
+			const parentSessionId = ctx.sessionManager.getSessionId();
+			const parentSessionFile = ctx.sessionManager.getSessionFile() ?? undefined;
+			const sessionDir = childSessionDirectory(parentSessionFile, parentSessionId);
+			fs.mkdirSync(sessionDir, { recursive: true });
+
+			const resumed = resumeSessionId !== undefined;
+			let childSessionId = resumeSessionId;
+			let childSessionPath = resumeSessionId
+				? findChildSessionPath(sessionDir, resumeSessionId)
+				: undefined;
+
+			if (resumeSessionId && !childSessionPath) {
+				throw new Error(
+					`Cannot resume child session ${resumeSessionId}: no matching session belongs to parent ${parentSessionId}.`,
+				);
+			}
+			if (resumeSessionId && activeChildSessions.has(resumeSessionId)) {
+				throw new Error(`Cannot resume child session ${resumeSessionId}: it is already running.`);
+			}
+			if (resumeSessionId) activeChildSessions.add(resumeSessionId);
+
+			const args = ["--mode", "json", "-p", "--session-dir", sessionDir];
+			if (childSessionPath) args.push("--session", childSessionPath);
+			else args.push("--name", `subagent: ${oneLine(summary, 80)}`);
 
 			if (ctx.model) args.push("--model", `${ctx.model.provider}/${ctx.model.id}`);
 			if (ctx.thinkingLevel) args.push("--thinking", ctx.thinkingLevel);
@@ -186,7 +248,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			const startedAt = Date.now();
 			let lastEventAt = startedAt;
 			let finishedAt: number | undefined;
-			let activity = "starting…";
+			let activity = resumed ? "resuming…" : "starting…";
 			let status: SubagentStatus = "running";
 			let finalOutput = "";
 			let stderr = "";
@@ -202,6 +264,9 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				activity,
 				status,
 				stallTimeoutSeconds,
+				childSessionId,
+				childSessionPath,
+				resumed,
 				output,
 			});
 			const emitUpdate = () =>
@@ -239,6 +304,13 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 						}
 
 						lastEventAt = Date.now();
+						if (event.type === "session" && typeof event.id === "string") {
+							childSessionId = event.id;
+							if (!childSessionPath && typeof event.timestamp === "string") {
+								childSessionPath = sessionPathFromHeader(sessionDir, event.id, event.timestamp);
+							}
+							activeChildSessions.add(event.id);
+						}
 						const nextActivity = eventActivity(event);
 						const activityChanged = nextActivity !== undefined && nextActivity !== activity;
 						if (nextActivity) activity = nextActivity;
@@ -328,21 +400,42 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 					content: [{ type: "text", text: truncateForModel(output) }],
 					details: details(output),
 				};
+			} catch (error) {
+				finishedAt = Date.now();
+				if (childSessionId && (!childSessionPath || !fs.existsSync(childSessionPath))) {
+					childSessionPath = findChildSessionPath(sessionDir, childSessionId) ?? childSessionPath;
+				}
+
+				const message = error instanceof Error ? error.message : String(error);
+				if (!childSessionId || !childSessionPath) throw error;
+				throw new Error(
+					`${message}\n\n` +
+						`Child session ID: ${childSessionId}\n` +
+						`Child session: ${childSessionPath}\n` +
+						`Original task: ${oneLine(task, 300)}\n` +
+						`Recovery: retry with resumeSessionId \"${childSessionId}\" after this child has stopped. ` +
+						`If continuation fails, launch a fresh subagent that inspects this session and the existing working tree.`,
+					{ cause: error },
+				);
 			} finally {
 				if (refreshTimer) clearInterval(refreshTimer);
+				if (childSessionId) activeChildSessions.delete(childSessionId);
 			}
 		},
 
 		renderCall(args, theme) {
 			const summary = oneLine(args.summary || args.task || "Preparing delegated task…");
+			const resume = args.resumeSessionId
+				? theme.fg("muted", ` [resume ${oneLine(args.resumeSessionId, 24)}]`)
+				: "";
 			return new Text(
-				theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", summary),
+				theme.fg("toolTitle", theme.bold("subagent ")) + theme.fg("accent", summary) + resume,
 				0,
 				0,
 			);
 		},
 
-		renderResult(result, { isPartial }, theme) {
+		renderResult(result, { isPartial, expanded }, theme) {
 			const details = result.details as SubagentDetails | undefined;
 			if (!details) {
 				const content = result.content.find((part) => part.type === "text");
@@ -372,9 +465,13 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			}
 
 			const output = result.content.find((part) => part.type === "text")?.text ?? details.output ?? "";
+			const session = expanded && details.childSessionPath
+				? `\n${theme.fg("dim", `session: ${details.childSessionPath}`)}`
+				: "";
 			return new Text(
 				theme.fg("success", `✓ completed in ${elapsed}`) +
-					(output ? `\n${theme.fg("toolOutput", output)}` : ""),
+					(output ? `\n${theme.fg("toolOutput", output)}` : "") +
+					session,
 				0,
 				0,
 			);
