@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Message } from "@earendil-works/pi-ai";
@@ -13,6 +13,36 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 
 const SUBAGENT_SESSION_ROOT_ENV = "PI_SUBAGENT_SESSION_ROOT";
+const SUBAGENT_ROOT_SESSION_ID_ENV = "PI_SUBAGENT_ROOT_SESSION_ID";
+const SUBAGENT_PARENT_SESSION_ID_ENV = "PI_SUBAGENT_PARENT_SESSION_ID";
+const SUBAGENT_DEPTH_ENV = "PI_SUBAGENT_DEPTH";
+const SUBAGENT_SUMMARY_ENV = "PI_SUBAGENT_SUMMARY";
+const SUBAGENT_ANCESTRY_ENV = "PI_SUBAGENT_ANCESTRY";
+const MAX_SUBAGENT_DEPTH = 100;
+const METADATA_DIRECTORY = ".metadata";
+
+interface DelegationAncestor {
+	sessionId: string;
+	summary: string;
+}
+
+interface DelegationContext {
+	rootSessionId?: string;
+	parentSessionId?: string;
+	depth: number;
+	summary?: string;
+	ancestry: DelegationAncestor[];
+}
+
+interface DelegationMetadata extends DelegationAncestor {
+	version: 1;
+	rootSessionId: string;
+	parentSessionId: string;
+	depth: number;
+	sessionPath: string;
+	ancestry: DelegationAncestor[];
+	createdAt: string;
+}
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
 	const currentScript = process.argv[1];
@@ -52,6 +82,145 @@ function oneLine(text: string, maxLength = 120): string {
 	const normalized = text.replace(/\s+/g, " ").trim();
 	if (normalized.length <= maxLength) return normalized;
 	return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function parseDepth(value: string | undefined): number {
+	if (!value) return 0;
+	const parsed = Number.parseInt(value, 10);
+	return Number.isInteger(parsed) && parsed >= 0 ? parsed : 0;
+}
+
+function parseAncestry(value: string | undefined): DelegationAncestor[] {
+	if (!value) return [];
+	try {
+		const parsed = JSON.parse(value);
+		if (!Array.isArray(parsed)) return [];
+		return parsed.flatMap((entry): DelegationAncestor[] => {
+			if (
+				typeof entry === "object" &&
+				entry !== null &&
+				typeof entry.sessionId === "string" &&
+				typeof entry.summary === "string"
+			) {
+				return [{ sessionId: entry.sessionId, summary: oneLine(entry.summary) }];
+			}
+			return [];
+		});
+	} catch {
+		return [];
+	}
+}
+
+function currentDelegationContext(): DelegationContext {
+	return {
+		rootSessionId: process.env[SUBAGENT_ROOT_SESSION_ID_ENV],
+		parentSessionId: process.env[SUBAGENT_PARENT_SESSION_ID_ENV],
+		depth: parseDepth(process.env[SUBAGENT_DEPTH_ENV]),
+		summary: process.env[SUBAGENT_SUMMARY_ENV],
+		ancestry: parseAncestry(process.env[SUBAGENT_ANCESTRY_ENV]),
+	};
+}
+
+function delegationGuidance(context: DelegationContext): string {
+	const position = `Subagent is available at delegation depth ${context.depth} of ${MAX_SUBAGENT_DEPTH}.`;
+	const assignment = context.summary ? ` This session's assigned role is: ${oneLine(context.summary)}.` : "";
+	const ancestry = context.ancestry.length > 0
+		? ` Ancestor assignments: ${context.ancestry
+				.map((ancestor, index) => `${index + 1}. ${oneLine(ancestor.summary, 90)}`)
+				.join(" | ")}.`
+		: "";
+	return `${position}${assignment}${ancestry} Before calling subagent, decide whether the remaining work contains a distinct, independently useful task that is strictly narrower than this session's assignment. If the work is atomic, do it directly. Never delegate the whole assignment or recursively request another general review of it.`;
+}
+
+function metadataPath(sessionRoot: string, sessionId: string): string {
+	const safeId = sessionId.replace(/[^a-zA-Z0-9._-]/g, "_");
+	return path.join(sessionRoot, METADATA_DIRECTORY, `${safeId}.json`);
+}
+
+function readDelegationMetadata(sessionRoot: string, sessionId: string): DelegationMetadata | undefined {
+	try {
+		const parsed = JSON.parse(fs.readFileSync(metadataPath(sessionRoot, sessionId), "utf8"));
+		if (
+			parsed?.version !== 1 ||
+			typeof parsed.sessionId !== "string" ||
+			typeof parsed.rootSessionId !== "string" ||
+			typeof parsed.parentSessionId !== "string" ||
+			typeof parsed.depth !== "number" ||
+			typeof parsed.summary !== "string" ||
+			typeof parsed.sessionPath !== "string" ||
+			!Array.isArray(parsed.ancestry)
+		) return undefined;
+		return parsed as DelegationMetadata;
+	} catch {
+		return undefined;
+	}
+}
+
+function writeDelegationMetadata(sessionRoot: string, metadata: DelegationMetadata): void {
+	const directory = path.join(sessionRoot, METADATA_DIRECTORY);
+	fs.mkdirSync(directory, { recursive: true });
+	const destination = metadataPath(sessionRoot, metadata.sessionId);
+	const temporary = `${destination}.${process.pid}.${Date.now()}.tmp`;
+	fs.writeFileSync(temporary, `${JSON.stringify(metadata, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+	fs.renameSync(temporary, destination);
+}
+
+function descendantProcessIds(rootPid: number): number[] {
+	if (process.platform === "win32") return [];
+	try {
+		const output = execFileSync("ps", ["-axo", "pid=,ppid="], { encoding: "utf8" });
+		const children = new Map<number, number[]>();
+		for (const line of output.split("\n")) {
+			const [pidText, parentText] = line.trim().split(/\s+/);
+			const pid = Number(pidText);
+			const parent = Number(parentText);
+			if (!Number.isInteger(pid) || !Number.isInteger(parent)) continue;
+			const siblings = children.get(parent) ?? [];
+			siblings.push(pid);
+			children.set(parent, siblings);
+		}
+		const descendants: number[] = [];
+		const visit = (pid: number) => {
+			for (const child of children.get(pid) ?? []) {
+				visit(child);
+				descendants.push(child);
+			}
+		};
+		visit(rootPid);
+		return descendants;
+	} catch {
+		return [];
+	}
+}
+
+function signalProcess(pid: number, signal: NodeJS.Signals): void {
+	try {
+		process.kill(pid, signal);
+	} catch {
+		// The process may already have exited.
+	}
+}
+
+function terminateProcessTree(child: ChildProcess, signal: NodeJS.Signals, ownsProcessGroup: boolean): void {
+	if (!child.pid) return;
+	if (process.platform === "win32") {
+		const args = ["/pid", String(child.pid), "/T"];
+		if (signal === "SIGKILL") args.push("/F");
+		const killer = spawn("taskkill", args, { shell: false, stdio: "ignore" });
+		killer.unref();
+		return;
+	}
+	if (ownsProcessGroup) {
+		try {
+			process.kill(-child.pid, signal);
+			return;
+		} catch {
+			// Fall back to a process-tree snapshot.
+		}
+	}
+	const descendants = descendantProcessIds(child.pid);
+	signalProcess(child.pid, signal);
+	for (const pid of descendants) signalProcess(pid, signal);
 }
 
 type SubagentStatus = "running" | "completed";
@@ -178,19 +347,22 @@ function eventActivity(event: any): string | undefined {
 }
 
 export default function minimalSubagent(pi: ExtensionAPI): void {
+	const delegation = currentDelegationContext();
+	if (delegation.depth >= MAX_SUBAGENT_DEPTH) return;
+
 	const activeChildSessions = new Set<string>();
 
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
 		description:
-			"Delegate one task to a generic subagent in an isolated Pi process. The child inherits the active model, thinking level, working directory, and active tools, including subagent delegation. Child sessions are retained outside the normal session list. To continue a stopped child, provide its exact resumeSessionId. Give each call a concise summary for display. Multiple subagent calls in one turn run in parallel; call subagent again after a result when later work depends on it.",
-		promptSnippet: "Delegate a bounded task to one generic isolated subagent",
+			`Delegate one strictly narrower task to a generic subagent in an isolated Pi process. Recursive delegation is available through depth ${MAX_SUBAGENT_DEPTH}; this session is at depth ${delegation.depth}. The child inherits the active model, thinking level, working directory, and active tools. Sessions are retained in one flat directory per root delegation tree. To continue a stopped session from this tree, provide its exact resumeSessionId. Give each call a concise summary for display. Multiple calls in one turn run in parallel; call subagent again after a result when later work depends on it.`,
+		promptSnippet: "Delegate a distinct, strictly narrower task to one generic isolated subagent",
 		promptGuidelines: [
-			"For every subagent call, write summary as a concise one-line description of the instructions being delegated.",
+			delegationGuidance(delegation),
+			"For every subagent call, write summary as a concise one-line description of the distinct, strictly narrower work being delegated.",
 			"For every subagent call, deliberately choose stallTimeoutSeconds based on the longest legitimate period without JSON events expected for that task. Use longer timeouts for builds, tests, installations, or other potentially silent commands.",
-			"Use resumeSessionId only to continue a child that has already stopped. If that continuation fails, launch a fresh subagent and include the failed child session path plus instructions to inspect the existing working tree. Avoid unlimited retry loops.",
-			"Run independent subagent calls together in one turn for parallel work; run dependent subagent calls in later turns for sequential work.",
+			"Use resumeSessionId only to continue a subagent that has already stopped. If that continuation fails, launch a fresh subagent and include the failed session path plus instructions to inspect the existing working tree. Avoid unlimited retry loops.",
 		],
 		parameters: Type.Object({
 			summary: Type.String({ description: "Concise one-line summary shown to the user" }),
@@ -223,6 +395,20 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			let childSessionPath = resumeSessionId
 				? findChildSessionPath(sessionDir, resumeSessionId)
 				: undefined;
+			const resumedMetadata = resumeSessionId
+				? readDelegationMetadata(sessionDir, resumeSessionId)
+				: undefined;
+			const rootSessionId = resumedMetadata?.rootSessionId ?? delegation.rootSessionId ?? parentSessionId;
+			const childDepth = resumedMetadata?.depth ?? delegation.depth + 1;
+			const childSummary = resumedMetadata?.summary ?? oneLine(summary);
+			const childParentSessionId = resumedMetadata?.parentSessionId ?? parentSessionId;
+			const childAncestry = resumedMetadata?.ancestry ?? [
+				...delegation.ancestry,
+				{
+					sessionId: parentSessionId,
+					summary: delegation.summary ? oneLine(delegation.summary) : "Root session",
+				},
+			];
 
 			if (resumeSessionId && !childSessionPath) {
 				throw new Error(
@@ -241,12 +427,24 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			if (ctx.model) args.push("--model", `${ctx.model.provider}/${ctx.model.id}`);
 			if (ctx.thinkingLevel) args.push("--thinking", ctx.thinkingLevel);
 
-			const childTools = pi.getActiveTools();
+			const childTools = childDepth < MAX_SUBAGENT_DEPTH
+				? pi.getActiveTools()
+				: pi.getActiveTools().filter((name) => name !== "subagent");
 			if (childTools.length > 0) args.push("--tools", childTools.join(","));
 
 			args.push(task);
 
 			const invocation = getPiInvocation(args);
+			const childEnvironment = {
+				...process.env,
+				[SUBAGENT_SESSION_ROOT_ENV]: sessionDir,
+				[SUBAGENT_ROOT_SESSION_ID_ENV]: rootSessionId,
+				[SUBAGENT_PARENT_SESSION_ID_ENV]: childParentSessionId,
+				[SUBAGENT_DEPTH_ENV]: String(childDepth),
+				[SUBAGENT_SUMMARY_ENV]: childSummary,
+				[SUBAGENT_ANCESTRY_ENV]: JSON.stringify(childAncestry),
+			};
+			const ownsProcessGroup = delegation.depth === 0 && process.platform !== "win32";
 			const messages: Message[] = [];
 			const startedAt = Date.now();
 			let lastEventAt = startedAt;
@@ -286,7 +484,8 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				const exitCode = await new Promise<number>((resolve, reject) => {
 					const child = spawn(invocation.command, invocation.args, {
 						cwd: ctx.cwd,
-						env: { ...process.env, [SUBAGENT_SESSION_ROOT_ENV]: sessionDir },
+						env: childEnvironment,
+						detached: ownsProcessGroup,
 						shell: false,
 						stdio: ["ignore", "pipe", "pipe"],
 					});
@@ -313,6 +512,23 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 								childSessionPath = sessionPathFromHeader(sessionDir, event.id, event.timestamp);
 							}
 							activeChildSessions.add(event.id);
+							if (!resumedMetadata && childSessionPath) {
+								try {
+									writeDelegationMetadata(sessionDir, {
+										version: 1,
+										sessionId: event.id,
+										rootSessionId,
+										parentSessionId: childParentSessionId,
+										depth: childDepth,
+										summary: childSummary,
+										sessionPath: childSessionPath,
+										ancestry: childAncestry,
+										createdAt: typeof event.timestamp === "string" ? event.timestamp : new Date().toISOString(),
+									});
+								} catch (error) {
+									stderr += `Failed to write subagent metadata: ${error instanceof Error ? error.message : String(error)}\n`;
+								}
+							}
 						}
 						const nextActivity = eventActivity(event);
 						const activityChanged = nextActivity !== undefined && nextActivity !== activity;
@@ -351,8 +567,11 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 							activity = `stalled after ${stallTimeoutSeconds}s without updates`;
 							emitUpdate();
 						}
-						child.kill("SIGTERM");
-						forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+						terminateProcessTree(child, "SIGTERM", ownsProcessGroup);
+						forceKillTimer = setTimeout(
+							() => terminateProcessTree(child, "SIGKILL", ownsProcessGroup),
+							5_000,
+						);
 						forceKillTimer.unref();
 					};
 					const abort = () => terminateChild("user");
@@ -363,7 +582,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 					const cleanup = () => {
 						signal?.removeEventListener("abort", abort);
 						clearInterval(stallCheckTimer);
-						if (forceKillTimer) clearTimeout(forceKillTimer);
+						if (forceKillTimer && !abortReason) clearTimeout(forceKillTimer);
 					};
 
 					child.on("error", (error) => {
