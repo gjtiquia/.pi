@@ -64,6 +64,7 @@ interface SubagentDetails {
 	finishedAt?: number;
 	activity: string;
 	status: SubagentStatus;
+	stallTimeoutSeconds: number;
 	output?: string;
 }
 
@@ -153,14 +154,23 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 		promptSnippet: "Delegate a bounded task to one generic isolated subagent",
 		promptGuidelines: [
 			"For every subagent call, write summary as a concise one-line description of the instructions being delegated.",
+			"For every subagent call, deliberately choose stallTimeoutSeconds based on the longest legitimate period without JSON events expected for that task. Use longer timeouts for builds, tests, installations, or other potentially silent commands.",
 			"Run independent subagent calls together in one turn for parallel work; run dependent subagent calls in later turns for sequential work.",
 		],
 		parameters: Type.Object({
 			summary: Type.String({ description: "Concise one-line summary shown to the user" }),
 			task: Type.String({ description: "The complete task to delegate" }),
+			stallTimeoutSeconds: Type.Integer({
+				description:
+					"Seconds of continuous child inactivity before aborting it. Choose deliberately based on the longest legitimate silent operation expected.",
+			}),
 		}),
 
-		async execute(_toolCallId, { summary, task }, signal, onUpdate, ctx) {
+		async execute(_toolCallId, { summary, task, stallTimeoutSeconds }, signal, onUpdate, ctx) {
+			if (!Number.isInteger(stallTimeoutSeconds) || stallTimeoutSeconds <= 0) {
+				throw new Error("stallTimeoutSeconds must be a positive integer");
+			}
+
 			const args = ["--mode", "json", "-p", "--no-session"];
 
 			if (ctx.model) args.push("--model", `${ctx.model.provider}/${ctx.model.id}`);
@@ -191,6 +201,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				finishedAt,
 				activity,
 				status,
+				stallTimeoutSeconds,
 				output,
 			});
 			const emitUpdate = () =>
@@ -213,7 +224,9 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 					});
 
 					let stdoutBuffer = "";
-					let aborted = false;
+					let abortReason: "user" | "stall" | undefined;
+					let activityBeforeStall: string | undefined;
+					let forceKillTimer: ReturnType<typeof setTimeout> | undefined;
 
 					const processLine = (line: string) => {
 						if (!line.trim()) return;
@@ -252,27 +265,52 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 					});
 
 					child.stderr.on("data", (chunk) => {
-						lastEventAt = Date.now();
 						stderr += chunk.toString();
 					});
 
-					const removeAbortListener = () => signal?.removeEventListener("abort", abort);
+					const terminateChild = (reason: "user" | "stall") => {
+						if (abortReason) return;
+						abortReason = reason;
+						if (reason === "stall") {
+							activityBeforeStall = activity;
+							activity = `stalled after ${stallTimeoutSeconds}s without updates`;
+							emitUpdate();
+						}
+						child.kill("SIGTERM");
+						forceKillTimer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+						forceKillTimer.unref();
+					};
+					const abort = () => terminateChild("user");
+					const stallCheckTimer = setInterval(() => {
+						if (Date.now() - lastEventAt >= stallTimeoutSeconds * 1_000) terminateChild("stall");
+					}, 1_000);
+					stallCheckTimer.unref();
+					const cleanup = () => {
+						signal?.removeEventListener("abort", abort);
+						clearInterval(stallCheckTimer);
+						if (forceKillTimer) clearTimeout(forceKillTimer);
+					};
+
 					child.on("error", (error) => {
-						removeAbortListener();
+						cleanup();
 						reject(error);
 					});
 					child.on("close", (code) => {
-						removeAbortListener();
+						cleanup();
 						if (stdoutBuffer.trim()) processLine(stdoutBuffer);
-						if (aborted) reject(new Error("Subagent was aborted"));
-						else resolve(code ?? 1);
+						if (abortReason === "user") {
+							reject(new Error("Subagent was aborted"));
+						} else if (abortReason === "stall") {
+							reject(
+								new Error(
+									`Subagent stalled: no JSON events for ${stallTimeoutSeconds}s. ` +
+										`Runtime: ${formatDuration(Date.now() - startedAt)}. Last activity: ${activityBeforeStall ?? activity}.`,
+								),
+							);
+						} else {
+							resolve(code ?? 1);
+						}
 					});
-
-					function abort() {
-						aborted = true;
-						child.kill("SIGTERM");
-						setTimeout(() => child.kill("SIGKILL"), 5_000).unref();
-					}
 
 					if (signal?.aborted) abort();
 					else signal?.addEventListener("abort", abort, { once: true });
@@ -322,7 +360,13 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				const quietFor = Date.now() - details.lastEventAt;
 				let text = theme.fg("muted", `↳ ${elapsed} · ${details.activity}`);
 				if (quietFor >= 15_000) {
-					text += theme.fg("warning", ` · no updates ${formatDuration(quietFor)}`);
+					const stalledSeconds = Math.floor(quietFor / 1_000);
+					const remainingSeconds =
+						typeof details.stallTimeoutSeconds === "number"
+							? Math.max(0, Math.ceil((details.stallTimeoutSeconds * 1_000 - quietFor) / 1_000))
+							: undefined;
+					const countdown = remainingSeconds === undefined ? "" : ` · auto-terminates in ${remainingSeconds}s`;
+					text += theme.fg("warning", ` · stalled ${stalledSeconds}s${countdown}`);
 				}
 				return new Text(text, 0, 0);
 			}
