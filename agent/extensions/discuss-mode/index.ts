@@ -4,6 +4,10 @@ const DISCUSS_MODE_STATE_TYPE = "discuss-mode-state";
 const DISCUSS_MODE_ENV = "PI_DISCUSS_MODE";
 const SUBAGENT_DEPTH_ENV = "PI_SUBAGENT_DEPTH";
 
+function isDiscussModeEnabled(): boolean {
+	return process.env[DISCUSS_MODE_ENV] === "1";
+}
+
 const DISCUSS_MODE_ACTIVE_MESSAGE = `[DISCUSS MODE ACTIVE]
 You are in discuss mode for exploration and analysis.
 
@@ -19,8 +23,6 @@ This supersedes earlier discuss-mode instructions.
 Edit and write tool calls are permitted again. Normal coding mode is active.`;
 
 export default function discussModeExtension(pi: ExtensionAPI): void {
-	let discussModeEnabled = false;
-
 	// A root extension reload disables discuss mode. Subagents retain the flag so
 	// their descendants inherit the same write-tool restriction.
 	if (process.env[SUBAGENT_DEPTH_ENV] === undefined) {
@@ -30,7 +32,7 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 	function updateStatus(ctx: ExtensionContext): void {
 		ctx.ui.setStatus(
 			"discuss-mode",
-			discussModeEnabled ? ctx.ui.theme.fg("warning", "💬 discuss") : undefined,
+			isDiscussModeEnabled() ? ctx.ui.theme.fg("warning", "💬 discuss") : undefined,
 		);
 	}
 
@@ -38,7 +40,7 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 		pi.sendMessage(
 			{
 				customType: DISCUSS_MODE_STATE_TYPE,
-				content: discussModeEnabled ? DISCUSS_MODE_ACTIVE_MESSAGE : DISCUSS_MODE_DISABLED_MESSAGE,
+				content: isDiscussModeEnabled() ? DISCUSS_MODE_ACTIVE_MESSAGE : DISCUSS_MODE_DISABLED_MESSAGE,
 				display: true,
 			},
 			{ deliverAs: "nextTurn" },
@@ -46,12 +48,11 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 	}
 
 	function toggleDiscussMode(ctx: ExtensionContext): void {
-		discussModeEnabled = !discussModeEnabled;
-		if (discussModeEnabled) process.env[DISCUSS_MODE_ENV] = "1";
-		else delete process.env[DISCUSS_MODE_ENV];
+		if (isDiscussModeEnabled()) delete process.env[DISCUSS_MODE_ENV];
+		else process.env[DISCUSS_MODE_ENV] = "1";
 
 		ctx.ui.notify(
-			discussModeEnabled
+			isDiscussModeEnabled()
 				? "Discuss mode enabled. Edit and write tool calls are blocked."
 				: "Discuss mode disabled. Edit and write tool calls are permitted.",
 		);
@@ -66,7 +67,7 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("tool_call", (event) => {
-		if (!discussModeEnabled) return;
+		if (!isDiscussModeEnabled()) return;
 		if (event.toolName !== "edit" && event.toolName !== "write") return;
 
 		return {
