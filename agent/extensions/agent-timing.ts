@@ -24,9 +24,22 @@ function formatDuration(milliseconds: number): string {
 	return `${hours}hr ${pad(minutes)}min ${pad(seconds)}sec`;
 }
 
+function formatWorkingDuration(milliseconds: number): string {
+	const totalSeconds = Math.floor(milliseconds / 1000);
+	const hours = Math.floor(totalSeconds / 3600);
+	const minutes = Math.floor((totalSeconds % 3600) / 60);
+	const seconds = totalSeconds % 60;
+	const pad = (value: number) => String(value).padStart(2, "0");
+
+	if (hours > 0) return `${hours}hr ${pad(minutes)}min ${pad(seconds)}sec`;
+	if (minutes > 0) return `${minutes}min ${pad(seconds)}sec`;
+	return `${seconds}sec`;
+}
+
 export default function (pi: ExtensionAPI) {
 	let startedAt: number | undefined;
 	let monotonicStart: number | undefined;
+	let workingTimer: ReturnType<typeof setInterval> | undefined;
 
 	pi.registerEntryRenderer<TimingData>("agent-timing", (entry, _options, theme) => {
 		if (!entry.data) return new Text("", 0, 0);
@@ -36,13 +49,25 @@ export default function (pi: ExtensionAPI) {
 		return new Text(theme.fg("dim", line), 0, 0);
 	});
 
-	pi.on("agent_start", () => {
+	pi.on("agent_start", (_event, ctx) => {
 		if (startedAt !== undefined) return;
 		startedAt = Date.now();
 		monotonicStart = performance.now();
+
+		const updateWorkingMessage = () => {
+			if (monotonicStart === undefined) return;
+			ctx.ui.setWorkingMessage(`Working for ${formatWorkingDuration(performance.now() - monotonicStart)}...`);
+		};
+
+		updateWorkingMessage();
+		workingTimer = setInterval(updateWorkingMessage, 1000);
 	});
 
-	pi.on("agent_settled", () => {
+	pi.on("agent_settled", (_event, ctx) => {
+		if (workingTimer) clearInterval(workingTimer);
+		workingTimer = undefined;
+		ctx.ui.setWorkingMessage();
+
 		if (startedAt === undefined || monotonicStart === undefined) return;
 
 		pi.appendEntry<TimingData>("agent-timing", {
@@ -53,5 +78,11 @@ export default function (pi: ExtensionAPI) {
 
 		startedAt = undefined;
 		monotonicStart = undefined;
+	});
+
+	pi.on("session_shutdown", (_event, ctx) => {
+		if (workingTimer) clearInterval(workingTimer);
+		workingTimer = undefined;
+		ctx.ui.setWorkingMessage();
 	});
 }
