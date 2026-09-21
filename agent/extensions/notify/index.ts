@@ -4,7 +4,7 @@ import notifier from "node-notifier";
 
 function sendNativeNotification(title: string, message: string): Promise<void> {
 	return new Promise((resolve, reject) => {
-		notifier.notify({ title, message }, (error: Error | null) => {
+		notifier.notify({ title, message, timeout: false }, (error: Error | null) => {
 			if (error) {
 				reject(new Error(`Native notification failed: ${error.message}`));
 			} else {
