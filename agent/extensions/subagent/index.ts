@@ -1,7 +1,7 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Message } from "@earendil-works/pi-ai";
+import { StringEnum, type Message } from "@earendil-works/pi-ai";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
@@ -21,6 +21,23 @@ const SUBAGENT_ANCESTRY_ENV = "PI_SUBAGENT_ANCESTRY";
 const DISCUSS_MODE_ENV = "PI_DISCUSS_MODE";
 const MAX_SUBAGENT_DEPTH = 100;
 const METADATA_DIRECTORY = ".metadata";
+
+const MODEL_TIERS = {
+	"openai-codex": {
+		fast: "gpt-5.6-luna",
+		balanced: "gpt-5.6-sol",
+		deep: "gpt-6-astra",
+	},
+	"opencode-go": {
+		fast: "deepseek-v4.1-flash",
+		balanced: "glm-5.3-flash",
+		deep: "kimi-k3",
+	},
+} as const;
+
+const MODEL_TIER_VALUES = ["fast", "balanced", "deep", "inherit"] as const;
+type ModelTier = (typeof MODEL_TIER_VALUES)[number];
+type RoutedModelTier = Exclude<ModelTier, "inherit">;
 
 interface DelegationAncestor {
 	sessionId: string;
@@ -43,6 +60,9 @@ interface DelegationMetadata extends DelegationAncestor {
 	sessionPath: string;
 	ancestry: DelegationAncestor[];
 	createdAt: string;
+	modelTier?: ModelTier;
+	modelProvider?: string;
+	modelId?: string;
 }
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
@@ -149,7 +169,10 @@ function readDelegationMetadata(sessionRoot: string, sessionId: string): Delegat
 			typeof parsed.depth !== "number" ||
 			typeof parsed.summary !== "string" ||
 			typeof parsed.sessionPath !== "string" ||
-			!Array.isArray(parsed.ancestry)
+			!Array.isArray(parsed.ancestry) ||
+			(parsed.modelTier !== undefined && !MODEL_TIER_VALUES.includes(parsed.modelTier)) ||
+			(parsed.modelProvider !== undefined && typeof parsed.modelProvider !== "string") ||
+			(parsed.modelId !== undefined && typeof parsed.modelId !== "string")
 		) return undefined;
 		return parsed as DelegationMetadata;
 	} catch {
@@ -229,6 +252,10 @@ type SubagentStatus = "running" | "completed";
 interface SubagentDetails {
 	summary: string;
 	task: string;
+	modelTier: ModelTier;
+	modelProvider?: string;
+	modelId?: string;
+	modelFallbackReason?: string;
 	messages: Message[];
 	startedAt: number;
 	lastEventAt: number;
@@ -240,6 +267,47 @@ interface SubagentDetails {
 	childSessionPath?: string;
 	resumed: boolean;
 	output?: string;
+}
+
+function resolveModelRoute(
+	modelTier: ModelTier,
+	activeModel: { provider: string; id: string } | undefined,
+	modelExists: (provider: string, id: string) => boolean,
+): { provider?: string; id?: string; fallbackReason?: string } {
+	if (!activeModel) {
+		return { fallbackReason: "no active model was available" };
+	}
+	if (modelTier === "inherit") {
+		return { provider: activeModel.provider, id: activeModel.id };
+	}
+
+	const providerRoutes = MODEL_TIERS[activeModel.provider as keyof typeof MODEL_TIERS];
+	const routedId = providerRoutes?.[modelTier as RoutedModelTier];
+	if (!routedId) {
+		return {
+			provider: activeModel.provider,
+			id: activeModel.id,
+			fallbackReason: `no ${modelTier} route is configured for ${activeModel.provider}`,
+		};
+	}
+	if (!modelExists(activeModel.provider, routedId)) {
+		return {
+			provider: activeModel.provider,
+			id: activeModel.id,
+			fallbackReason: `${activeModel.provider}/${routedId} is unavailable`,
+		};
+	}
+	return { provider: activeModel.provider, id: routedId };
+}
+
+function formatModel(details: SubagentDetails, theme: { fg: (color: "muted" | "warning", text: string) => string }): string {
+	const model = details.modelProvider && details.modelId
+		? `${details.modelProvider}/${details.modelId}`
+		: "default model";
+	const fallback = details.modelFallbackReason
+		? theme.fg("warning", ` (${details.modelTier} → inherit: ${details.modelFallbackReason})`)
+		: "";
+	return theme.fg("muted", `model: ${model}`) + fallback;
 }
 
 function formatDuration(milliseconds: number): string {
@@ -357,17 +425,22 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 		name: "subagent",
 		label: "Subagent",
 		description:
-			`Delegate one strictly narrower task to a generic subagent in an isolated Pi process. Recursive delegation is available through depth ${MAX_SUBAGENT_DEPTH}; this session is at depth ${delegation.depth}. The child inherits the active model, thinking level, working directory, and active tools. Sessions are retained in one flat directory per root delegation tree. To continue a stopped session from this tree, provide its exact resumeSessionId. Give each call a concise summary for display. Multiple calls in one turn run in parallel; call subagent again after a result when later work depends on it.`,
+			`Delegate one strictly narrower task to a generic subagent in an isolated Pi process. Recursive delegation is available through depth ${MAX_SUBAGENT_DEPTH}; this session is at depth ${delegation.depth}. Choose a model tier for the task; tiers are resolved only within the active provider, while inherit uses the exact active model. The child inherits the thinking level, working directory, and active tools. Sessions are retained in one flat directory per root delegation tree. To continue a stopped session from this tree, provide its exact resumeSessionId. Give each call a concise summary for display. Multiple calls in one turn run in parallel; call subagent again after a result when later work depends on it.`,
 		promptSnippet: "Delegate a distinct, strictly narrower task to one generic isolated subagent",
 		promptGuidelines: [
 			delegationGuidance(delegation),
 			"For every subagent call, write summary as a concise one-line description of the distinct, strictly narrower work being delegated.",
+			"For every subagent call, choose modelTier deliberately: fast for mechanical lookup and narrow checks, balanced for normal implementation and review, deep for difficult architecture, debugging, or synthesis, and inherit when the parent's exact model is specifically appropriate. Model tiers never change providers.",
 			"For every subagent call, deliberately choose stallTimeoutSeconds based on the longest legitimate period without JSON events expected for that task. Use longer timeouts for builds, tests, installations, or other potentially silent commands.",
 			"Use resumeSessionId only to continue a subagent that has already stopped. If that continuation fails, launch a fresh subagent and include the failed session path plus instructions to inspect the existing working tree. Avoid unlimited retry loops.",
 		],
 		parameters: Type.Object({
 			summary: Type.String({ description: "Concise one-line summary shown to the user" }),
 			task: Type.String({ description: "The complete task to delegate" }),
+			modelTier: StringEnum(MODEL_TIER_VALUES, {
+				description:
+					"Model tier to use within the active provider: fast for narrow mechanical work, balanced for normal coding and review, deep for difficult reasoning, or inherit for the exact active model.",
+			}),
 			stallTimeoutSeconds: Type.Integer({
 				minimum: 25,
 				description:
@@ -381,7 +454,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			),
 		}),
 
-		async execute(_toolCallId, { summary, task, stallTimeoutSeconds, resumeSessionId }, signal, onUpdate, ctx) {
+		async execute(_toolCallId, { summary, task, modelTier, stallTimeoutSeconds, resumeSessionId }, signal, onUpdate, ctx) {
 			if (!Number.isInteger(stallTimeoutSeconds) || stallTimeoutSeconds < 25) {
 				throw new Error("stallTimeoutSeconds must be an integer of at least 25 seconds");
 			}
@@ -410,6 +483,14 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 					summary: delegation.summary ? oneLine(delegation.summary) : "Root session",
 				},
 			];
+			const route = resumedMetadata?.modelProvider && resumedMetadata.modelId
+				? { provider: resumedMetadata.modelProvider, id: resumedMetadata.modelId }
+				: resolveModelRoute(
+					modelTier,
+					ctx.model,
+					(provider, id) => ctx.modelRegistry.find(provider, id) !== undefined,
+				);
+			const resolvedModelTier = resumedMetadata?.modelTier ?? modelTier;
 
 			if (resumeSessionId && !childSessionPath) {
 				throw new Error(
@@ -425,7 +506,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			if (childSessionPath) args.push("--session", childSessionPath);
 			else args.push("--name", `subagent: ${oneLine(summary, 80)}`);
 
-			if (ctx.model) args.push("--model", `${ctx.model.provider}/${ctx.model.id}`);
+			if (route.provider && route.id) args.push("--model", `${route.provider}/${route.id}`);
 			if (ctx.thinkingLevel) args.push("--thinking", ctx.thinkingLevel);
 
 			const discussModeEnabled = process.env[DISCUSS_MODE_ENV] === "1";
@@ -462,6 +543,10 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			const details = (output?: string): SubagentDetails => ({
 				summary: oneLine(summary),
 				task,
+				modelTier: resolvedModelTier,
+				modelProvider: route.provider,
+				modelId: route.id,
+				modelFallbackReason: route.fallbackReason,
 				messages: [...messages],
 				startedAt,
 				lastEventAt,
@@ -528,6 +613,9 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 										sessionPath: childSessionPath,
 										ancestry: childAncestry,
 										createdAt: typeof event.timestamp === "string" ? event.timestamp : new Date().toISOString(),
+										modelTier: resolvedModelTier,
+										modelProvider: route.provider,
+										modelId: route.id,
 									});
 								} catch (error) {
 									stderr += `Failed to write subagent metadata: ${error instanceof Error ? error.message : String(error)}\n`;
@@ -687,6 +775,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 					const countdown = remainingSeconds === undefined ? "" : ` · auto-terminates in ${remainingSeconds}s`;
 					text += theme.fg("warning", ` · stalled ${stalledSeconds}s${countdown}`);
 				}
+				text += `\n${formatModel(details, theme)}`;
 				return new Text(text, 0, 0);
 			}
 
@@ -697,7 +786,8 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			return new Text(
 				theme.fg("success", `✓ completed in ${elapsed}`) +
 					(output ? `\n${theme.fg("toolOutput", output)}` : "") +
-					session,
+					session +
+					`\n${formatModel(details, theme)}`,
 				0,
 				0,
 			);
