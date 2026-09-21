@@ -430,7 +430,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 		promptGuidelines: [
 			delegationGuidance(delegation),
 			"For every subagent call, write summary as a concise one-line description of the distinct, strictly narrower work being delegated.",
-			"For every subagent call, choose modelTier deliberately: fast for mechanical lookup and narrow checks, balanced for normal implementation and review, deep for difficult architecture, debugging, or synthesis, and inherit when the parent's exact model is specifically appropriate. Model tiers never change providers.",
+			"For every subagent call, choose modelTier deliberately: fast for mechanical lookup, narrow checks, and mechanical coding implementation when the specification is clearly defined; balanced for coding when the specification is incomplete or ambiguous, as well as normal review; deep for difficult architecture, debugging, or synthesis; and inherit when the parent's exact model is specifically appropriate. Model tiers never change providers.",
 			"For every subagent call, deliberately choose stallTimeoutSeconds based on the longest legitimate period without JSON events expected for that task. Use longer timeouts for builds, tests, installations, or other potentially silent commands.",
 			"Use resumeSessionId only to continue a subagent that has already stopped. If that continuation fails, launch a fresh subagent and include the failed session path plus instructions to inspect the existing working tree. Avoid unlimited retry loops.",
 		],
@@ -439,7 +439,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			task: Type.String({ description: "The complete task to delegate" }),
 			modelTier: StringEnum(MODEL_TIER_VALUES, {
 				description:
-					"Model tier to use within the active provider: fast for narrow mechanical work, balanced for normal coding and review, deep for difficult reasoning, or inherit for the exact active model.",
+					"Model tier within the active provider: fast for narrow or clearly specified mechanical implementation, balanced for coding with an incomplete or ambiguous specification and normal review, deep for difficult reasoning, or inherit for the exact active model.",
 			}),
 			stallTimeoutSeconds: Type.Integer({
 				minimum: 25,
