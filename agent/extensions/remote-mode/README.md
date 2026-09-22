@@ -18,4 +18,4 @@ The bot account must be able to read and post in the configured channel. Any non
 
 Enabling or pinging creates the session's root post if needed.
 The enabled state and root post ID are stored for that Pi session, so reloads and tree navigation keep using the same thread while forks get their own.
-Mattermost replies are sent to Pi immediately when idle or as follow-ups when busy. While Pi works on a Mattermost reply, one bracketed activity post is created and edited in place with updates such as `[thinking…]`, `[reading src/index.ts]`, and `[responding…]`. It finishes as `[completed]`, followed by the final assistant text as a separate thread reply.
+Mattermost replies are sent to Pi immediately when idle or as follow-ups when busy. While remote mode is enabled, work started from either the terminal or Mattermost creates one activity post. Each bracketed update is appended on a new line by editing that same post, for example `[thinking…]`, `[reading src/index.ts]`, and `[responding…]`. It finishes with `[completed]`, followed by the final assistant text as a separate thread reply.
