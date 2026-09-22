@@ -1,80 +1,47 @@
 # pi config
 
-https://pi.dev
+personal config for [pi](https://pi.dev), stored at `~/.pi`
 
-## where i belong
+## setup
 
-`~/.pi`
+prerequisites:
 
-## fresh setup
-
-### GitHub CLI prerequisite
-
-Install the [GitHub CLI (`gh`)](https://cli.github.com/) before continuing.
-
-Clone this repo before installing Pi so the destination does not already exist:
+- [GitHub CLI (`gh`)](https://cli.github.com/)
+- Node.js and npm
 
 ```bash
+# clone before installing pi so ~/.pi does not already exist
 git clone git@github.com:gjtiquia/.pi.git ~/.pi
+
+# install pi
 curl -fsSL https://pi.dev/install.sh | sh
-```
 
-The packages listed in `agent/settings.json` (currently `pi-web-access` and
-`pi-agent-browser-native`) are managed by Pi and should install automatically.
-They do not need separate install commands.
-
-### agent-browser prerequisite
-
-The `pi-agent-browser-native` extension requires Vercel's
-[`agent-browser`](https://github.com/vercel-labs/agent-browser) CLI. Install it
-globally and download its browser once:
-
-```bash
+# install agent-browser and download its browser
 npm install -g agent-browser
 agent-browser install
-```
 
-On Linux, use `agent-browser install --with-deps` instead if the required
-system browser libraries are not already installed.
-
-### notify extension dependency
-
-The local notify extension has its own dependency, so install it explicitly:
-
-```bash
+# install the local notify extension dependency
 npm ci --prefix ~/.pi/agent/extensions/notify
-```
 
-### log in
-
-Credentials are intentionally not committed. Start Pi and authenticate the
-providers needed on this machine:
-
-```bash
+# start pi
 pi
 ```
 
-Then run:
+on Linux, use `agent-browser install --with-deps` if the required system browser libraries are not already installed.
 
-```text
-/login
-```
+inside pi, run `/login` and authenticate each provider needed on the machine. credentials are stored in the ignored `~/.pi/agent/auth.json` file.
 
-Select the provider and follow its login flow. Repeat for any additional
-providers. Pi stores the resulting credentials in the ignored
-`~/.pi/agent/auth.json` file.
+packages listed in `agent/settings.json` are managed by pi and install automatically.
 
-### configure Mattermost remote mode
-
-The remote-mode environment file is also intentionally not committed. Create
-it from the example:
+## Mattermost remote mode
 
 ```bash
+# create the local environment file
 cp ~/.pi/agent/extensions/remote-mode/.env.example \
   ~/.pi/agent/extensions/remote-mode/.env
 ```
 
-Fill in all three values:
+fill in the environment file:
 
 ```dotenv
 MATTERMOST_URL=https://mattermost.example.com
@@ -82,14 +49,9 @@ MATTERMOST_BOT_TOKEN=...
 MATTERMOST_CHANNEL_ID=...
 ```
 
-The bot account must be able to read and post in that channel. The `.env` file
-contains secrets and is ignored by git.
+the bot must be able to read and post in the configured channel. restart pi or run `/reload`, then use `/remote status` to inspect remote mode and `/remote on` to enable it.
 
-Finally, restart Pi (or run `/reload` from an existing session). Use
-`/remote status` to inspect Mattermost remote mode and `/remote on` to enable
-it.
-
-### quick check
+## quick check
 
 ```bash
 pi --version
@@ -97,10 +59,9 @@ pi list
 npm ls --prefix ~/.pi/agent/extensions/notify --depth=0
 ```
 
-## fyi
+## notes
 
-- ignored `/agent/sessions/` cuz it grows a lot and i dun see a need to back these up (yet)
-- ignored `/agent/models-store.json` cuz it regenerates and i dun see a need to back these up (yet)
-- ignored `/agent/auth.json` for obvious reasons
-
-
+- `/agent/sessions/` is ignored because it grows quickly and does not need to be backed up yet
+- `/agent/models-store.json` is ignored because it regenerates
+- `/agent/auth.json` is ignored because it contains credentials
+- the remote-mode `.env` file is ignored because it contains secrets
