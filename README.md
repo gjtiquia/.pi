@@ -8,6 +8,10 @@ https://pi.dev
 
 ## fresh setup
 
+### GitHub CLI prerequisite
+
+Install the [GitHub CLI (`gh`)](https://cli.github.com/) before continuing.
+
 Clone this repo before installing Pi so the destination does not already exist:
 
 ```bash
