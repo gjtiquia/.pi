@@ -7,7 +7,7 @@ personal config for [pi](https://pi.dev), stored at `~/.pi`
 prerequisites:
 
 - [GitHub CLI (`gh`)](https://cli.github.com/)
-- Node.js and npm
+- Node.js and npm (installing through [nvm](https://github.com/nvm-sh/nvm) is recommended)
 
 ```bash
 # clone before installing pi so ~/.pi does not already exist
@@ -49,7 +49,7 @@ MATTERMOST_BOT_TOKEN=...
 MATTERMOST_CHANNEL_ID=...
 ```
 
-the bot must be able to read and post in the configured channel. restart pi or run `/reload`, then use `/remote status` to inspect remote mode and `/remote on` to enable it.
+the bot must be able to read and post in the configured channel. restart pi or run `/reload`, then use `/remote status` to inspect remote mode, `/remote ping` to test the connection, and `/remote on` to enable it.
 
 ## quick check
 
