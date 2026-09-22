@@ -35,6 +35,10 @@ export default function (pi: ExtensionAPI) {
 			}
 		}
 
-		await sendNativeNotification("Pi - agent_settled", message);
+		try {
+			await sendNativeNotification("Pi - agent_settled", message);
+		} catch {
+			// Native notifications are optional; ignore unavailable or failed backends.
+		}
 	});
 }
