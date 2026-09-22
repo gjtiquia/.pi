@@ -352,8 +352,10 @@ function toolActivity(toolName: string, args: Record<string, unknown> | undefine
 			return "searching the web";
 		case "agent_browser":
 			return "using the browser";
-		case "subagent":
-			return "waiting for subagent";
+		case "subagent": {
+			const summary = stringArg("summary");
+			return summary ? `waiting for subagent — ${summary}` : "waiting for subagent";
+		}
 		default:
 			return `using ${toolName.replaceAll("_", " ")}`;
 	}
