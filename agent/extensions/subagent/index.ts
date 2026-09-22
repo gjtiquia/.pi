@@ -300,6 +300,10 @@ function resolveModelRoute(
 	return { provider: activeModel.provider, id: routedId };
 }
 
+function formatSessionId(details: SubagentDetails, theme: { fg: (color: "muted", text: string) => string }): string {
+	return theme.fg("muted", `session id: ${details.childSessionId ?? "pending…"}`);
+}
+
 function formatModel(details: SubagentDetails, theme: { fg: (color: "muted" | "warning", text: string) => string }): string {
 	const model = details.modelProvider && details.modelId
 		? `${details.modelProvider}/${details.modelId}`
@@ -775,6 +779,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 					const countdown = remainingSeconds === undefined ? "" : ` · auto-terminates in ${remainingSeconds}s`;
 					text += theme.fg("warning", ` · stalled ${stalledSeconds}s${countdown}`);
 				}
+				text += `\n${formatSessionId(details, theme)}`;
 				text += `\n${formatModel(details, theme)}`;
 				return new Text(text, 0, 0);
 			}
@@ -787,6 +792,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				theme.fg("success", `✓ completed in ${elapsed}`) +
 					(output ? `\n${theme.fg("toolOutput", output)}` : "") +
 					session +
+					`\n${formatSessionId(details, theme)}` +
 					`\n${formatModel(details, theme)}`,
 				0,
 				0,
