@@ -261,6 +261,7 @@ interface SubagentDetails {
 	lastEventAt: number;
 	finishedAt?: number;
 	activity: string;
+	activityStartedAt: number;
 	status: SubagentStatus;
 	stallTimeoutSeconds: number;
 	childSessionId?: string;
@@ -385,6 +386,23 @@ function findChildSessionPath(sessionDir: string, sessionId: string): string | u
 
 function sessionPathFromHeader(sessionDir: string, id: string, timestamp: string): string {
 	return path.join(sessionDir, `${timestamp.replace(/[:.]/g, "-")}_${id}.jsonl`);
+}
+
+function startsNewActivity(event: any): boolean {
+	if (
+		event.type === "agent_start" ||
+		event.type === "turn_start" ||
+		event.type === "tool_execution_start" ||
+		event.type === "tool_execution_end" ||
+		event.type === "compaction_start" ||
+		event.type === "auto_retry_start" ||
+		event.type === "summarization_retry_scheduled" ||
+		event.type === "agent_end"
+	) return true;
+
+	if (event.type !== "message_update") return false;
+	const updateType = event.assistantMessageEvent?.type;
+	return updateType === "thinking_start" || updateType === "text_start" || updateType === "toolcall_start";
 }
 
 function eventActivity(event: any): string | undefined {
@@ -539,6 +557,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			let lastEventAt = startedAt;
 			let finishedAt: number | undefined;
 			let activity = resumed ? "resuming…" : "starting…";
+			let activityStartedAt = startedAt;
 			let status: SubagentStatus = "running";
 			let finalOutput = "";
 			let stderr = "";
@@ -556,6 +575,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				lastEventAt,
 				finishedAt,
 				activity,
+				activityStartedAt,
 				status,
 				stallTimeoutSeconds,
 				childSessionId,
@@ -628,7 +648,10 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 						}
 						const nextActivity = eventActivity(event);
 						const activityChanged = nextActivity !== undefined && nextActivity !== activity;
-						if (nextActivity) activity = nextActivity;
+						if (nextActivity) {
+							if (activityChanged || startsNewActivity(event)) activityStartedAt = lastEventAt;
+							activity = nextActivity;
+						}
 
 						if (event.type === "message_end" && event.message) {
 							const message = event.message as Message;
@@ -768,8 +791,12 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			const now = details.finishedAt ?? Date.now();
 			const elapsed = formatDuration(now - details.startedAt);
 			if (isPartial || details.status === "running") {
-				const quietFor = Date.now() - details.lastEventAt;
-				let text = theme.fg("muted", `↳ ${elapsed} · ${details.activity}`);
+				const quietFor = now - details.lastEventAt;
+				const activityStartedAt = typeof details.activityStartedAt === "number"
+					? details.activityStartedAt
+					: details.startedAt;
+				const activityElapsed = formatDuration(now - activityStartedAt);
+				let activityText = theme.fg("muted", `↳ ${elapsed} · ${details.activity}`);
 				if (quietFor >= 15_000) {
 					const stalledSeconds = Math.floor(quietFor / 1_000);
 					const remainingSeconds =
@@ -777,11 +804,13 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 							? Math.max(0, Math.ceil((details.stallTimeoutSeconds * 1_000 - quietFor) / 1_000))
 							: undefined;
 					const countdown = remainingSeconds === undefined ? "" : ` · auto-terminates in ${remainingSeconds}s`;
-					text += theme.fg("warning", ` · stalled ${stalledSeconds}s${countdown}`);
+					activityText += theme.fg("warning", ` · stalled ${stalledSeconds}s${countdown}`);
 				}
-				text += `\n${formatSessionId(details, theme)}`;
-				text += `\n${formatModel(details, theme)}`;
-				return new Text(text, 0, 0);
+
+				activityText += theme.fg("muted", ` · ${activityElapsed}`);
+				activityText += `\n${formatSessionId(details, theme)}`;
+				activityText += `\n${formatModel(details, theme)}`;
+				return new Text(activityText, 0, 0);
 			}
 
 			const output = result.content.find((part) => part.type === "text")?.text ?? details.output ?? "";
