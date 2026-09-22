@@ -35,6 +35,13 @@ interface MattermostEvent {
 	error?: { message?: string } | string;
 }
 
+interface ActivityRun {
+	active: boolean;
+	postId?: string;
+	message?: string;
+	updates: Promise<void>;
+}
+
 function loadLocalEnv(): Error | undefined {
 	try {
 		process.loadEnvFile(join(dirname(fileURLToPath(import.meta.url)), ".env"));
@@ -56,6 +63,46 @@ function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
 
+function oneLine(text: string, maxLength = 100): string {
+	const normalized = text.replace(/\s+/g, " ").trim();
+	if (normalized.length <= maxLength) return normalized;
+	return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+}
+
+function toolActivity(toolName: string, args: Record<string, unknown> | undefined): string {
+	const input = args ?? {};
+	const stringArg = (name: string): string | undefined =>
+		typeof input[name] === "string" ? oneLine(input[name] as string, 80) : undefined;
+
+	switch (toolName) {
+		case "bash":
+		case "powershell":
+			return `running ${stringArg("command") ?? toolName}`;
+		case "read":
+			return `reading ${stringArg("path") ?? "a file"}`;
+		case "write":
+			return `writing ${stringArg("path") ?? "a file"}`;
+		case "edit":
+			return `editing ${stringArg("path") ?? "a file"}`;
+		case "grep":
+			return `searching for ${stringArg("pattern") ?? "matches"}`;
+		case "find":
+			return `finding ${stringArg("pattern") ?? "files"}`;
+		case "ls":
+			return `listing ${stringArg("path") ?? "files"}`;
+		case "web_search":
+			return "searching the web";
+		case "agent_browser":
+			return "using the browser";
+		case "subagent": {
+			const summary = stringArg("summary");
+			return summary ? `waiting for subagent — ${summary}` : "waiting for subagent";
+		}
+		default:
+			return `using ${toolName.replaceAll("_", " ")}`;
+	}
+}
+
 export default function remoteModeExtension(pi: ExtensionAPI): void {
 	const envError = loadLocalEnv();
 	const config = readConfig();
@@ -72,6 +119,9 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	let botUserId: string | undefined;
 	let finalAssistantText: string | undefined;
 	let assistantActivationId: number | undefined;
+	let activityRun: ActivityRun | undefined;
+	const activityRuns = new Set<ActivityRun>();
+	let pendingRemotePrompts: string[] = [];
 
 	function setStatus(ctx: ExtensionContext): void {
 		let label: string | undefined;
@@ -153,6 +203,65 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		}, RECONNECT_DELAY_MS);
 	}
 
+	function resetActivity(): void {
+		for (const run of activityRuns) run.active = false;
+		activityRuns.clear();
+		activityRun = undefined;
+	}
+
+	function updateActivity(activity: string, ctx: ExtensionContext, run = activityRun): Promise<void> {
+		if (!run || !run.active || !activityRuns.has(run) || !enabled || !config) {
+			return run?.updates ?? Promise.resolve();
+		}
+		const message = `[${activity}]`;
+		if (message === run.message) return run.updates;
+		run.message = message;
+		const targetActivationId = activationId;
+
+		run.updates = run.updates
+			.then(async () => {
+				if (!run.active || !activityRuns.has(run) || !enabled || activationId !== targetActivationId) return;
+				const rootId = await ensureRootPost(ctx);
+				if (!run.active || !activityRuns.has(run) || !enabled || activationId !== targetActivationId) return;
+
+				if (!run.postId) {
+					const post = await api<MattermostPost>("/posts", {
+						method: "POST",
+						body: JSON.stringify({ channel_id: config.channelId, root_id: rootId, message }),
+					});
+					if (run.active && activityRuns.has(run) && enabled && activationId === targetActivationId) {
+						run.postId = post.id;
+					}
+					return;
+				}
+
+				await api<MattermostPost>(`/posts/${run.postId}/patch`, {
+					method: "PUT",
+					body: JSON.stringify({ message }),
+				});
+			})
+			.catch((error) => {
+				if (run.active && activityRuns.has(run) && enabled && activationId === targetActivationId) {
+					if ((error as Error).name !== "AbortError") {
+						ctx.ui.notify(`Could not update Mattermost activity: ${errorMessage(error)}`, "warning");
+					}
+					run.active = false;
+					activityRuns.delete(run);
+					if (activityRun === run) activityRun = undefined;
+				}
+			});
+
+		return run.updates;
+	}
+
+	function startActivity(ctx: ExtensionContext): void {
+		if (!activityRun) {
+			activityRun = { active: true, updates: Promise.resolve() };
+			activityRuns.add(activityRun);
+		}
+		void updateActivity("thinking…", ctx);
+	}
+
 	async function handlePostedEvent(event: MattermostEvent, ctx: ExtensionContext): Promise<void> {
 		if (!enabled || event.event !== "posted" || !event.data?.post || !config || !rootPostId) return;
 
@@ -174,8 +283,15 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			return;
 		}
 
-		if (ctx.isIdle()) pi.sendUserMessage(post.message);
-		else pi.sendUserMessage(post.message, { deliverAs: "followUp" });
+		pendingRemotePrompts.push(post.message);
+		try {
+			if (ctx.isIdle()) pi.sendUserMessage(post.message);
+			else pi.sendUserMessage(post.message, { deliverAs: "followUp" });
+		} catch (error) {
+			const index = pendingRemotePrompts.indexOf(post.message);
+			if (index >= 0) pendingRemotePrompts.splice(index, 1);
+			throw error;
+		}
 	}
 
 	async function connect(ctx: ExtensionContext): Promise<void> {
@@ -235,6 +351,8 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 				if (socket !== currentSocket) return;
 				socket = undefined;
 				authenticated = false;
+				resetActivity();
+				pendingRemotePrompts = [];
 				if (enabled) scheduleReconnect(ctx);
 				else setStatus(ctx);
 			});
@@ -292,6 +410,8 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		activationId += 1;
 		finalAssistantText = undefined;
 		assistantActivationId = undefined;
+		resetActivity();
+		pendingRemotePrompts = [];
 		pi.appendEntry<ThreadState>(STATE_TYPE, {
 			sessionId: ctx.sessionManager.getSessionId(),
 			enabled,
@@ -362,9 +482,43 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		setStatus(ctx);
 	});
 
-	pi.on("agent_start", () => {
+	pi.on("agent_start", (_event, ctx) => {
 		finalAssistantText = undefined;
 		assistantActivationId = enabled ? activationId : undefined;
+		void updateActivity("thinking…", ctx);
+	});
+
+	pi.on("message_start", (event, ctx) => {
+		if (event.message.role !== "user") return;
+		const text = typeof event.message.content === "string"
+			? event.message.content
+			: event.message.content
+					.filter((block) => block.type === "text")
+					.map((block) => block.text)
+					.join("\n");
+		const index = pendingRemotePrompts.indexOf(text);
+		if (index < 0) return;
+		pendingRemotePrompts.splice(index, 1);
+		startActivity(ctx);
+	});
+
+	pi.on("message_update", (event, ctx) => {
+		const updateType = event.assistantMessageEvent.type;
+		if (updateType === "thinking_start") void updateActivity("thinking…", ctx);
+		else if (updateType === "text_start") void updateActivity("responding…", ctx);
+		else if (updateType === "toolcall_start") {
+			const block = event.assistantMessageEvent.partial.content[event.assistantMessageEvent.contentIndex];
+			const toolName = block?.type === "toolCall" ? block.name : undefined;
+			void updateActivity(toolName ? `preparing ${toolName.replaceAll("_", " ")}…` : "preparing a tool…", ctx);
+		}
+	});
+
+	pi.on("tool_execution_start", (event, ctx) => {
+		void updateActivity(toolActivity(event.toolName, event.args), ctx);
+	});
+
+	pi.on("tool_execution_end", (_event, ctx) => {
+		void updateActivity("thinking…", ctx);
 	});
 
 	pi.on("message_end", (event) => {
@@ -379,8 +533,16 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	pi.on("agent_settled", async (_event, ctx) => {
 		const text = finalAssistantText;
 		const responseActivationId = assistantActivationId;
+		const settledActivity = activityRun;
 		finalAssistantText = undefined;
 		assistantActivationId = undefined;
+		pendingRemotePrompts = [];
+		if (settledActivity) {
+			activityRun = undefined;
+			await updateActivity("completed", ctx, settledActivity);
+			settledActivity.active = false;
+			activityRuns.delete(settledActivity);
+		}
 		if (!enabled || !config || !text || responseActivationId === undefined) return;
 
 		try {
@@ -402,6 +564,8 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		activationId += 1;
 		finalAssistantText = undefined;
 		assistantActivationId = undefined;
+		resetActivity();
+		pendingRemotePrompts = [];
 		disconnect(context);
 		context = undefined;
 	});
