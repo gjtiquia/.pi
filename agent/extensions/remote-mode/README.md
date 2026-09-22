@@ -4,9 +4,9 @@ A global Pi extension that relays one Mattermost thread to the current Pi sessio
 
 ## Configuration
 
-Copy `.env.example` to `.env` in this directory and fill in all four values. The extension loads that file with Node's `process.loadEnvFile`; a real `.env` is intentionally not included.
+Copy `.env.example` to `.env` in this directory and fill in all three values. The extension loads that file with Node's `process.loadEnvFile`; a real `.env` is intentionally not included.
 
-The bot account must be able to read and post in the configured channel. Only websocket replies from `MATTERMOST_ALLOWED_USER_ID` in the session's thread are accepted.
+The bot account must be able to read and post in the configured channel. Any non-bot user who can reply in the session's thread can send messages into Pi.
 
 ## Usage
 

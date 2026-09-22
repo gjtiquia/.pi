@@ -10,7 +10,6 @@ interface Config {
 	url: string;
 	token: string;
 	channelId: string;
-	allowedUserId: string;
 }
 
 interface ThreadState {
@@ -25,6 +24,7 @@ interface MattermostPost {
 	user_id: string;
 	root_id: string;
 	message: string;
+	props?: { from_bot?: string | boolean };
 }
 
 interface MattermostEvent {
@@ -47,10 +47,9 @@ function readConfig(): Config | undefined {
 	const url = process.env.MATTERMOST_URL?.replace(/\/+$/, "");
 	const token = process.env.MATTERMOST_BOT_TOKEN;
 	const channelId = process.env.MATTERMOST_CHANNEL_ID;
-	const allowedUserId = process.env.MATTERMOST_ALLOWED_USER_ID;
 
-	if (!url || !token || !channelId || !allowedUserId) return;
-	return { url, token, channelId, allowedUserId };
+	if (!url || !token || !channelId) return;
+	return { url, token, channelId };
 }
 
 function errorMessage(error: unknown): string {
@@ -167,8 +166,9 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		if (
 			post.channel_id !== config.channelId ||
 			post.root_id !== rootPostId ||
-			post.user_id !== config.allowedUserId ||
 			post.user_id === botUserId ||
+			post.props?.from_bot === true ||
+			post.props?.from_bot === "true" ||
 			!post.message.trim()
 		) {
 			return;
@@ -269,7 +269,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		}
 		if (!config) {
 			ctx.ui.notify(
-				"Remote mode needs MATTERMOST_URL, MATTERMOST_BOT_TOKEN, MATTERMOST_CHANNEL_ID, and MATTERMOST_ALLOWED_USER_ID",
+				"Remote mode needs MATTERMOST_URL, MATTERMOST_BOT_TOKEN, and MATTERMOST_CHANNEL_ID",
 				"error",
 			);
 			return;
