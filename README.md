@@ -19,6 +19,22 @@ The packages listed in `agent/settings.json` (currently `pi-web-access` and
 `pi-agent-browser-native`) are managed by Pi and should install automatically.
 They do not need separate install commands.
 
+### agent-browser prerequisite
+
+The `pi-agent-browser-native` extension requires Vercel's
+[`agent-browser`](https://github.com/vercel-labs/agent-browser) CLI. Install it
+globally and download its browser once:
+
+```bash
+npm install -g agent-browser
+agent-browser install
+```
+
+On Linux, use `agent-browser install --with-deps` instead if the required
+system browser libraries are not already installed.
+
+### notify extension dependency
+
 The local notify extension has its own dependency, so install it explicitly:
 
 ```bash
