@@ -301,16 +301,40 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	}
 
 	pi.registerCommand("remote", {
-		description: "Toggle Mattermost remote mode (on, off, status)",
-		handler: (args, ctx) => {
+		description: "Control Mattermost remote mode (on, off, status, ping)",
+		handler: async (args, ctx) => {
 			const action = args.trim().toLowerCase();
 			if (action === "status") {
 				const connection = authenticated ? "connected" : "disconnected";
 				ctx.ui.notify(`Remote mode is ${enabled ? `enabled (${connection})` : "disabled"}`, "info");
 				return;
 			}
+			if (action === "ping") {
+				if (envError) {
+					ctx.ui.notify(`Could not load remote-mode/.env: ${envError.message}`, "error");
+					return;
+				}
+				if (!config) {
+					ctx.ui.notify(
+						"Remote mode needs MATTERMOST_URL, MATTERMOST_BOT_TOKEN, and MATTERMOST_CHANNEL_ID",
+						"error",
+					);
+					return;
+				}
+				try {
+					const rootId = await ensureRootPost(ctx);
+					await api<MattermostPost>("/posts", {
+						method: "POST",
+						body: JSON.stringify({ channel_id: config.channelId, root_id: rootId, message: "ping" }),
+					});
+					ctx.ui.notify("Ping sent to Mattermost", "info");
+				} catch (error) {
+					ctx.ui.notify(`Mattermost ping failed: ${errorMessage(error)}`, "error");
+				}
+				return;
+			}
 			if (action && action !== "on" && action !== "off") {
-				ctx.ui.notify("Usage: /remote [on|off|status]", "warning");
+				ctx.ui.notify("Usage: /remote [on|off|status|ping]", "warning");
 				return;
 			}
 			if (action === "on" || (!action && !enabled)) enable(ctx);

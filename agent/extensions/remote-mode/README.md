@@ -14,7 +14,8 @@ The bot account must be able to read and post in the configured channel. Any non
 - `/remote on` enables it.
 - `/remote off` disconnects and stops inbound and outbound relaying.
 - `/remote status` reports its state.
+- `/remote ping` posts `ping` to the session's Mattermost thread, even when remote mode is off.
 
-Enabling creates the session's root post if needed.
+Enabling or pinging creates the session's root post if needed.
 The enabled state and root post ID are stored for that Pi session, so reloads and tree navigation keep using the same thread while forks get their own.
 Final assistant text is posted as thread replies; Mattermost replies are sent to Pi immediately when idle or as follow-ups when busy.
