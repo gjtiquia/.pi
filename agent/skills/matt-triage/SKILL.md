@@ -14,6 +14,8 @@ metadata:
 
 Move issues on the project issue tracker through a small state machine of triage roles.
 
+This adaptation adds an orthogonal priority system for scheduling without changing the original category or state model.
+
 If this repo treats external pull requests as a request surface (see the issue-tracker config), triage covers them too: **a PR is an issue with attached code**, using the same roles, same states, and same machine, with a few deltas marked "for a PR" below. Resolve a bare `#42` to an issue or PR per the tracker config.
 
 Every comment or issue posted to the issue tracker during triage **must** start with this disclaimer:
@@ -50,6 +52,19 @@ These are canonical role names. The actual label strings used in the issue track
 
 State transitions: an unlabeled issue normally goes to `needs-triage` first; from there it moves to `needs-info`, `ready-for-agent`, `ready-for-human`, or `wontfix`. `needs-info` returns to `needs-triage` once the reporter replies. The maintainer can override at any time; flag transitions that look unusual and ask before proceeding.
 
+## Priority extension
+
+This priority system is an enhancement on top of Matt Pocock's original triage skill. It does not replace or redefine category roles, state roles, or state transitions. Priority is orthogonal: it answers *when relative to other work*, while state answers *what can happen next*.
+
+Four **priority** roles:
+
+- `P0`: an emergency that interrupts current work because the product or development workflow is unusable, data is at immediate risk, or a critical security exposure exists. Before production, P0 should be rare.
+- `P1`: foundational or blocking work. Other planned work cannot proceed cleanly without it, or delaying it would cause substantial rework. Importance alone does not make an issue P1.
+- `P2`: ordinary planned work that is clearly valuable and expected to be completed, but is neither urgent nor foundational. This is the default priority for well-formed work.
+- `P3`: optional backlog or nice-to-have work with no current expectation or dependency requiring completion.
+
+In addition to the original category and state requirements, every triaged open issue should carry exactly one priority role. This includes issues in `needs-triage` and `needs-info`; their priority is provisional and can change as facts emerge. Untriaged issues may remain unlabeled until their first triage pass. Closed historical issues do not need priorities backfilled. If priority roles conflict, flag it and ask the maintainer before doing anything else. Priority can change independently of state.
+
 ## Invocation
 
 The maintainer invokes `/skill:matt-triage` and describes what they want in natural language. Interpret the request and act. Examples:
@@ -57,6 +72,7 @@ The maintainer invokes `/skill:matt-triage` and describes what they want in natu
 - "Show me anything that needs my attention"
 - "Let's look at #42" (issue or PR)
 - "Move #42 to ready-for-agent"
+- "Make #42 P1"
 - "What's ready for agents to pick up?"
 
 ## Show what needs attention
@@ -67,6 +83,8 @@ Query the issue tracker and present three buckets, oldest first:
 2. **`needs-triage`**: evaluation in progress.
 3. **`needs-info` with reporter activity since the last triage notes**: needs re-evaluation.
 
+As an additional priority check, also flag triaged open issues that are missing a priority, show each item's priority when present, and surface any P0 item prominently. This does not remove or reorder the original three attention buckets.
+
 When PRs are in scope, include external PRs in these buckets and tag each line `[PR]` or `[issue]`. Discovery surfaces only *external* PRs (the tracker config defines who counts as external), so a collaborator's in-flight PR is not triage work. This filter is discovery-only; an explicitly named PR is always triaged regardless of author.
 
 Show counts and a one-line summary per item. Let the maintainer pick.
@@ -76,6 +94,8 @@ Show counts and a one-line summary per item. Let the maintainer pick.
 1. **Gather context.** Read the full issue or PR (body, comments, labels, author, dates; for a PR, the diff too). Parse any prior triage notes so you don't re-ask resolved questions. Explore the codebase using the project's domain glossary, respecting ADRs in the area. Run two checks against the codebase: (a) **redundancy**: search for an existing implementation of the requested behavior by domain concept (not just the request's wording), and report where you looked. If found, it's an already-implemented `wontfix` (step 5). (b) **prior rejection**: read `.out-of-scope/*.md` and surface any that resembles this request.
 
 2. **Recommend.** Tell the maintainer your category and state recommendation with reasoning, plus a brief codebase summary relevant to the request (including whether it's already implemented). Wait for direction.
+
+   As an additional recommendation, give the issue a priority with separate reasoning. Use P2 as the default; reserve P1 for concrete foundational or blocking effects and P0 for the emergency threshold above. Wait for maintainer direction before applying it.
 
 3. **Verify the claim.** Before any grilling, check that the claim holds up. For a bug, reproduce it from the reporter's steps. For a PR, confirm the diff does what it claims: check it out, run the relevant tests or commands. Report what happened: confirmed (with code path), failed, or insufficient detail (a strong `needs-info` signal). A confirmed verification makes a much stronger agent brief.
 
@@ -91,9 +111,19 @@ Show counts and a one-line summary per item. Let the maintainer pick.
      - **Rejected (enhancement)**: write to `.out-of-scope/`, link to it from a comment, then close ([OUT-OF-SCOPE.md](OUT-OF-SCOPE.md)).
    - `needs-triage`: apply the role. Optional comment if there's partial progress.
 
+When applying any outcome to an open issue, also apply the approved priority and remove any conflicting priority label. Do not otherwise change how the original outcome is applied.
+
 ## Quick state override
 
 If the maintainer says "move #42 to ready-for-agent", trust them and apply the role directly. Confirm what you're about to do (role changes, comment, close), then act. Skip grilling. If moving to `ready-for-agent` without a grilling session, ask whether they want to write an agent brief.
+
+## Quick priority override
+
+If the maintainer says "make #42 P1", trust them and apply the priority directly. Confirm the priority-label change, remove any other priority label, then act. Do not change the issue's category or state.
+
+## Select work for an agent
+
+When asked what is ready for agents to pick up, consider open `ready-for-agent` issues that have no unresolved blockers. Order them by priority (`P0`, `P1`, `P2`, `P3`), then oldest first within a priority. Explicit maintainer direction and dependency constraints take precedence over this ordering. A P3 issue may still be `ready-for-agent`; it simply yields to available higher-priority work.
 
 ## Needs-info template
 
