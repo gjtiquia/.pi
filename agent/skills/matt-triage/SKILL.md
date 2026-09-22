@@ -14,7 +14,7 @@ metadata:
 
 Move issues on the project issue tracker through a small state machine of triage roles.
 
-This adaptation adds an orthogonal priority system for scheduling without changing the original category or state model.
+This adaptation adds an orthogonal priority system for scheduling and an `in-progress` workflow state on top of the original category and state model.
 
 If this repo treats external pull requests as a request surface (see the issue-tracker config), triage covers them too: **a PR is an issue with attached code**, using the same roles, same states, and same machine, with a few deltas marked "for a PR" below. Resolve a bare `#42` to an issue or PR per the tracker config.
 
@@ -36,7 +36,7 @@ Two **category** roles:
 - `bug`: something is broken
 - `enhancement`: new feature or improvement
 
-Five **state** roles:
+Five original **state** roles:
 
 - `needs-triage`: maintainer needs to evaluate
 - `needs-info`: waiting on reporter for more information
@@ -44,13 +44,19 @@ Five **state** roles:
 - `ready-for-human`: needs human implementation
 - `wontfix`: will not be actioned
 
-For a PR, the same states read against the attached code: `ready-for-agent` means a brief is attached and an agent should take the next step on the diff; `ready-for-human` means it's ready for a human to merge.
+This adaptation adds one **workflow-state extension**:
 
-Every triaged issue should carry exactly one category role and one state role. If state roles conflict, flag it and ask the maintainer before doing anything else.
+- `in-progress`: implementation is actively underway
+
+`in-progress` extends rather than alters the original design. It replaces the previous state label while work is active; it is not an additive status label. Category and priority remain unchanged.
+
+For a PR, the same states read against the attached code: `ready-for-agent` means a brief is attached and an agent should take the next step on the diff; `ready-for-human` means it's ready for a human to merge; `in-progress` means someone is actively taking that next step.
+
+Every triaged issue should carry exactly one category role and exactly one state role, including the extension state. If state roles conflict, flag it and ask the maintainer before doing anything else.
 
 These are canonical role names. The actual label strings used in the issue tracker may differ. The mapping should have been provided to you. If not, tell the user to run `/skill:matt-setup-skills`.
 
-State transitions: an unlabeled issue normally goes to `needs-triage` first; from there it moves to `needs-info`, `ready-for-agent`, `ready-for-human`, or `wontfix`. `needs-info` returns to `needs-triage` once the reporter replies. The maintainer can override at any time; flag transitions that look unusual and ask before proceeding.
+State transitions: an unlabeled issue normally goes to `needs-triage` first; from there it moves to `needs-info`, `ready-for-agent`, `ready-for-human`, or `wontfix`. `needs-info` returns to `needs-triage` once the reporter replies. Starting implementation moves `ready-for-agent` or `ready-for-human` to `in-progress`. If implementation is abandoned or released, restore the appropriate readiness state. The maintainer can override at any time; flag transitions that look unusual and ask before proceeding.
 
 ## Priority extension
 
@@ -72,6 +78,7 @@ The maintainer invokes `/skill:matt-triage` and describes what they want in natu
 - "Show me anything that needs my attention"
 - "Let's look at #42" (issue or PR)
 - "Move #42 to ready-for-agent"
+- "Mark #42 in progress"
 - "Make #42 P1"
 - "What's ready for agents to pick up?"
 
@@ -105,6 +112,7 @@ Show counts and a one-line summary per item. Let the maintainer pick.
    - `ready-for-agent`: post an agent brief comment ([AGENT-BRIEF.md](AGENT-BRIEF.md)).
    - `ready-for-human`: same structure as an agent brief, but note why it can't be delegated (judgment calls, external access, design decisions, manual testing).
    - `needs-info`: post triage notes (template below).
+   - `in-progress`: replace the current state label with `in-progress`; do not keep a readiness state alongside it.
    - For `wontfix`, close the issue, with the comment depending on *why*:
      - **Already implemented**: the change already exists in the codebase. Point to where it lives; do **not** write to `.out-of-scope/` (that KB is for *rejected* requests, not built ones).
      - **Rejected (bug)**: give a polite explanation, then close.
@@ -117,13 +125,19 @@ When applying any outcome to an open issue, also apply the approved priority and
 
 If the maintainer says "move #42 to ready-for-agent", trust them and apply the role directly. Confirm what you're about to do (role changes, comment, close), then act. Skip grilling. If moving to `ready-for-agent` without a grilling session, ask whether they want to write an agent brief.
 
+## Start or release work
+
+If the maintainer says work is starting on an issue, trust them and replace `ready-for-agent` or `ready-for-human` with `in-progress`. Do not retain both labels. Assign the issue to the person doing the work when that identity is known and assignment is available.
+
+If active work is abandoned or released, remove `in-progress` and restore `ready-for-agent` or `ready-for-human`, according to who can take the next step. Preserve category and priority throughout.
+
 ## Quick priority override
 
 If the maintainer says "make #42 P1", trust them and apply the priority directly. Confirm the priority-label change, remove any other priority label, then act. Do not change the issue's category or state.
 
 ## Select work for an agent
 
-When asked what is ready for agents to pick up, consider open `ready-for-agent` issues that have no unresolved blockers. Order them by priority (`P0`, `P1`, `P2`, `P3`), then oldest first within a priority. Explicit maintainer direction and dependency constraints take precedence over this ordering. A P3 issue may still be `ready-for-agent`; it simply yields to available higher-priority work.
+When asked what is ready for agents to pick up, consider open `ready-for-agent` issues that have no unresolved blockers. Exclude `in-progress` issues; a correctly labelled issue cannot be both states. Order eligible issues by priority (`P0`, `P1`, `P2`, `P3`), then oldest first within a priority. Explicit maintainer direction and dependency constraints take precedence over this ordering. A P3 issue may still be `ready-for-agent`; it simply yields to available higher-priority work.
 
 ## Needs-info template
 
