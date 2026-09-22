@@ -51,6 +51,22 @@ MATTERMOST_CHANNEL_ID=...
 
 the bot must be able to read and post in the configured channel. restart pi or run `/reload`, then use `/remote status` to inspect remote mode, `/remote ping` to test the connection, and `/remote on` to enable it.
 
+## Excalidraw+ reader
+
+```bash
+# create the local environment file
+cp ~/.pi/agent/extensions/excalidraw-plus/.env.example \
+  ~/.pi/agent/extensions/excalidraw-plus/.env
+```
+
+create a personal Excalidraw+ API key with read-only scene, scene-content, and screenshot access, then add it to the environment file:
+
+```dotenv
+EXCALIDRAW_API_KEY=...
+```
+
+restart pi or run `/reload`. The `list_excalidraw_scenes` tool lists or searches accessible scenes, and `read_excalidraw` loads one by ID, URL, or title and returns its rendered image, extracted text, and raw `.excalidraw` file.
+
 ## quick check
 
 ```bash
@@ -64,4 +80,4 @@ npm ls --prefix ~/.pi/agent/extensions/notify --depth=0
 - `/agent/sessions/` is ignored because it grows quickly and does not need to be backed up yet
 - `/agent/models-store.json` is ignored because it regenerates
 - `/agent/auth.json` is ignored because it contains credentials
-- the remote-mode `.env` file is ignored because it contains secrets
+- extension `.env` files are ignored because they contain secrets
