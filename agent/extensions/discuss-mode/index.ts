@@ -23,11 +23,41 @@ This supersedes earlier discuss-mode instructions.
 Edit and write tool calls are permitted again. Normal coding mode is active.`;
 
 export default function discussModeExtension(pi: ExtensionAPI): void {
-	// A root extension reload disables discuss mode. Subagents retain the flag so
-	// their descendants inherit the same write-tool restriction.
-	if (process.env[SUBAGENT_DEPTH_ENV] === undefined) {
-		delete process.env[DISCUSS_MODE_ENV];
+	const isSubagent = process.env[SUBAGENT_DEPTH_ENV] !== undefined;
+	// Capture before clearing: a fork replaces the extension runtime, but must keep
+	// the outgoing session's mode even when the fork point predates its toggle.
+	const inheritedMode = isDiscussModeEnabled();
+	// A root process must not inherit another session's mode through its environment.
+	if (!isSubagent) delete process.env[DISCUSS_MODE_ENV];
+
+	function restoreMode(ctx: ExtensionContext, reason: string): void {
+		const sessionId = ctx.sessionManager.getSessionId();
+		let enabled: boolean | undefined;
+		for (const entry of ctx.sessionManager.getBranch()) {
+			if (entry.type !== "custom" || entry.customType !== DISCUSS_MODE_STATE_TYPE) continue;
+			const data = entry.data;
+			if (typeof data !== "object" || data === null ||
+				!("sessionId" in data) || data.sessionId !== sessionId ||
+				!("enabled" in data) || typeof data.enabled !== "boolean") continue;
+			enabled = data.enabled;
+		}
+		// A fork copies only the branch up to its selected entry, with a new session
+		// ID. Its inherited mode is the mode at fork time, not an old branch entry.
+		// Subagents also need to record their inherited flag so a later resume can
+		// restore it without depending on the process environment.
+		const inheritFork = reason === "fork";
+		const inheritSubagent = isSubagent && (reason === "startup" || reason === "reload");
+		if (enabled === undefined && (inheritFork || inheritSubagent) && inheritedMode) {
+			enabled = true;
+			pi.appendEntry(DISCUSS_MODE_STATE_TYPE, { sessionId, enabled });
+		}
+		if (enabled) process.env[DISCUSS_MODE_ENV] = "1";
+		else delete process.env[DISCUSS_MODE_ENV];
+		updateStatus(ctx);
 	}
+
+	pi.on("session_start", (event, ctx) => restoreMode(ctx, event.reason));
+	pi.on("session_tree", (_event, ctx) => restoreMode(ctx, "tree"));
 
 	function updateStatus(ctx: ExtensionContext): void {
 		ctx.ui.setStatus(
@@ -50,6 +80,10 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 	function toggleDiscussMode(ctx: ExtensionContext): void {
 		if (isDiscussModeEnabled()) delete process.env[DISCUSS_MODE_ENV];
 		else process.env[DISCUSS_MODE_ENV] = "1";
+		pi.appendEntry(DISCUSS_MODE_STATE_TYPE, {
+			sessionId: ctx.sessionManager.getSessionId(),
+			enabled: isDiscussModeEnabled(),
+		});
 
 		ctx.ui.notify(
 			isDiscussModeEnabled()
@@ -63,7 +97,7 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 
 	pi.registerCommand("discuss", {
 		description: "Toggle discuss mode (exploration and analysis)",
-		handler: (_args, ctx) => toggleDiscussMode(ctx),
+		handler: async (_args, ctx) => { toggleDiscussMode(ctx); },
 	});
 
 	pi.on("tool_call", (event) => {

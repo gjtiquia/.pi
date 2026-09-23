@@ -3,8 +3,14 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
+import { handleModelCommand } from "./model-commands.js";
 
 const STATE_TYPE = "remote-mode-thread";
+const MAX_REPLY_CHARS = 14_000;
+// A process-local handoff between the old and new extension runtimes during reload.
+const reloadSignal = globalThis as typeof globalThis & {
+	__piRemoteReloadPending?: { sessionId: string; started: boolean };
+};
 const STATUS_KEY = "remote-mode";
 const METADATA_TOOL_NAME = "remote_session_metadata";
 const RECONNECT_DELAY_MS = 5_000;
@@ -135,6 +141,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	let titleSource: ThreadState["titleSource"];
 	let threadStatus: NonNullable<ThreadState["status"]> = "active";
 	let titleAttempted = false;
+	let titleGenerationId = 0;
 	let finalAssistantText: string | undefined;
 	let assistantActivationId: number | undefined;
 	let activityRun: ActivityRun | undefined;
@@ -267,8 +274,10 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			const text = messageText(entry.message);
 			if (text) messages.push(`${entry.message.role === "user" ? "User" : "Assistant"}: ${text}`);
 		}
-		const trigger = `User: ${triggeringText}`;
-		if (messages.at(-1) !== trigger) messages.push(trigger);
+		if (triggeringText) {
+			const trigger = `User: ${triggeringText}`;
+			if (messages.at(-1) !== trigger) messages.push(trigger);
+		}
 		return messages.join("\n\n").slice(-MAX_TITLE_CONTEXT_CHARS);
 	}
 
@@ -277,7 +286,14 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		targetSessionId: string,
 		targetActivationId: number,
 		triggeringText: string,
-	): Promise<void> {
+		force = false,
+	): Promise<string | undefined> {
+		const generationId = ++titleGenerationId;
+		const initialTitle = title;
+		const initialSource = titleSource;
+		const stillCurrent = () => activationId === targetActivationId && enabled && generationId === titleGenerationId &&
+			ctx.sessionManager.getSessionId() === targetSessionId &&
+			(force ? title === initialTitle && titleSource === initialSource : titleSource === undefined);
 		titleAttempted = true;
 		persistState(ctx);
 		const provider = ctx.model?.provider;
@@ -299,10 +315,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		const transcript = titleContext(ctx, triggeringText);
 		const failures: string[] = [];
 		for (const model of models) {
-			if (
-				ctx.sessionManager.getSessionId() !== targetSessionId || activationId !== targetActivationId ||
-				!enabled || titleSource !== undefined
-			) return;
+			if (!stillCurrent()) return;
 			try {
 				const outputController = new AbortController();
 				const signals = [outputController.signal, AbortSignal.timeout(15_000)];
@@ -337,10 +350,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 					failures.push(`${model.id}: ${result.errorMessage ?? "invalid title response"}`);
 					continue;
 				}
-				if (
-					ctx.sessionManager.getSessionId() !== targetSessionId || activationId !== targetActivationId ||
-					!enabled || titleSource !== undefined
-				) return;
+				if (!stillCurrent()) return;
 				title = generated;
 				titleSource = "generated";
 				pi.setSessionName(generated);
@@ -350,15 +360,12 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 				} catch (error) {
 					ctx.ui.notify(`Could not update Mattermost session title: ${errorMessage(error)}`, "warning");
 				}
-				return;
+				return generated;
 			} catch (error) {
 				failures.push(`${model.id}: ${errorMessage(error)}`);
 			}
 		}
-		if (
-			ctx.sessionManager.getSessionId() !== targetSessionId || activationId !== targetActivationId ||
-			!enabled || titleSource !== undefined
-		) return;
+		if (!stillCurrent()) return;
 		ctx.ui.notify(`Could not generate remote session title (${failures.join("; ")})`, "warning");
 	}
 
@@ -454,6 +461,121 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		activityRuns.delete(run);
 	}
 
+	async function postReply(ctx: ExtensionContext, text: string): Promise<void> {
+		if (!config) throw new Error("Mattermost remote mode is not configured");
+		const rootId = await ensureRootPost(ctx);
+		const lines = text.split("\n");
+		let chunk = "";
+		for (const line of lines) {
+			// A single catalog line should never approach this limit, but keep chunks bounded.
+			for (const part of line.match(/.{1,13000}/g) ?? [""]) {
+				if (chunk && chunk.length + part.length + 1 > MAX_REPLY_CHARS) {
+					await api<MattermostPost>("/posts", { method: "POST", body: JSON.stringify({ channel_id: config.channelId, root_id: rootId, message: chunk }) });
+					chunk = "";
+				}
+				chunk += (chunk ? "\n" : "") + part;
+			}
+		}
+		if (chunk) await api<MattermostPost>("/posts", {
+			method: "POST", body: JSON.stringify({ channel_id: config.channelId, root_id: rootId, message: chunk }),
+		});
+	}
+
+	function formatTokens(count: number): string {
+		if (count < 1000) return String(count);
+		if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+		if (count < 1000000) return `${Math.round(count / 1000)}k`;
+		if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
+		return `${Math.round(count / 1000000)}M`;
+	}
+
+	function tokenStatus(ctx: ExtensionContext): string {
+		const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+		let latestCacheHitRate: number | undefined;
+		for (const entry of ctx.sessionManager.getEntries()) {
+			const usage = entry.type === "usage" ? entry.usage
+				: entry.type === "message" && entry.message.role === "assistant" ? entry.message.usage
+				: entry.type === "message" && entry.message.role === "toolResult" ? entry.message.usage
+				: (entry.type === "branch_summary" || entry.type === "compaction") ? entry.usage : undefined;
+			if (!usage) continue;
+			totals.input += usage.input;
+			totals.output += usage.output;
+			totals.cacheRead += usage.cacheRead;
+			totals.cacheWrite += usage.cacheWrite;
+			totals.cost += usage.cost.total;
+			if (entry.type === "message" && entry.message.role === "assistant") {
+				const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
+				latestCacheHitRate = prompt > 0 ? usage.cacheRead / prompt * 100 : undefined;
+			}
+		}
+		const parts: string[] = [];
+		if (totals.input) parts.push(`↑${formatTokens(totals.input)}`);
+		if (totals.output) parts.push(`↓${formatTokens(totals.output)}`);
+		if (totals.cacheRead) parts.push(`R${formatTokens(totals.cacheRead)}`);
+		if (totals.cacheWrite) parts.push(`W${formatTokens(totals.cacheWrite)}`);
+		if ((totals.cacheRead || totals.cacheWrite) && latestCacheHitRate !== undefined) {
+			parts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
+		}
+		if (totals.cost) parts.push(`$${totals.cost.toFixed(3)}`);
+		const usage = ctx.getContextUsage();
+		parts.push(`${usage?.percent == null ? "?" : usage.percent.toFixed(1) + "%"}/${formatTokens(usage?.contextWindow ?? ctx.model?.contextWindow ?? 0)}`);
+		return parts.join(" ");
+	}
+
+	async function handleRemoteCommand(message: string, ctx: ExtensionContext): Promise<boolean> {
+		const input = message.trim();
+		if (!input.startsWith("!")) return false;
+		const [name, ...rest] = input.slice(1).split(/\s+/);
+		const args = rest.join(" ");
+		let response: string | undefined;
+		if (name === "help" && !args) {
+			response = "!help\n!token status (or !tokens status)\n!remote set status done|active\n!remote set title <title>\n!remote update\n!discuss [on|off|status]\n!model [status|help|list|set model <provider> <model>|set model <model>|set effort <level>]\n!reload";
+		} else if ((name === "token" || name === "tokens") && args === "status") {
+			response = tokenStatus(ctx);
+		} else if (name === "model") {
+			response = await handleModelCommand(args, pi, ctx);
+		} else if (name === "discuss") {
+			if (args === "status") response = `Discuss mode: ${process.env.PI_DISCUSS_MODE === "1" ? "on" : "off"}`;
+			else if (args === "" || args === "on" || args === "off") {
+				const active = process.env.PI_DISCUSS_MODE === "1";
+				if (args === "" || (args === "on") !== active) {
+					pi.sendUserMessage("/discuss", { expandPromptTemplates: true });
+					response = `Discuss mode: ${active ? "off" : "on"}`;
+				} else response = `Discuss mode is already ${active ? "on" : "off"}.`;
+			} else response = "Usage: !discuss [on|off|status]";
+		} else if (name === "remote") {
+			if (args === "update") {
+				const targetActivationId = activationId;
+				const targetGenerationId = titleGenerationId + 1;
+				const generated = await generateTitle(ctx, ctx.sessionManager.getSessionId(), targetActivationId, "", true);
+				if (activationId !== targetActivationId || !enabled || titleGenerationId !== targetGenerationId) return true;
+				await patchRootPost(ctx);
+				response = generated ? `Remote updated: ${threadStatus}, title “${title}”.` : `Remote card refreshed (${threadStatus}, title “${title ?? "(pending)"}”); title regeneration did not succeed.`;
+			} else if (args === "set status done" || args === "set status active") {
+				threadStatus = args.endsWith("done") ? "done" : "active";
+				persistState(ctx);
+				await patchRootPost(ctx);
+				response = `Remote status: ${threadStatus}.`;
+			} else if (args.startsWith("set title ") && args.slice(10).trim()) {
+				const manualTitle = oneLine(args.slice(10), 100);
+				titleGenerationId += 1;
+				title = manualTitle;
+				titleSource = "manual";
+				pi.setSessionName(manualTitle);
+				persistState(ctx);
+				await patchRootPost(ctx);
+				response = `Remote title: “${manualTitle}”.`;
+			} else response = "Usage: !remote set status done|active; !remote set title <title>; !remote update";
+		} else if (name === "reload" && !args) {
+			await postReply(ctx, "[reload in progress]");
+			reloadSignal.__piRemoteReloadPending = { sessionId: ctx.sessionManager.getSessionId(), started: false };
+			pi.sendUserMessage("/remote-reload", { expandPromptTemplates: true });
+			return true;
+		} else return false;
+		await postReply(ctx, response);
+		return true;
+	}
+
 	async function handlePostedEvent(event: MattermostEvent, ctx: ExtensionContext): Promise<void> {
 		if (!enabled || event.event !== "posted" || !event.data?.post || !config || !rootPostId) return;
 
@@ -475,6 +597,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			return;
 		}
 
+		if (await handleRemoteCommand(post.message, ctx)) return;
 		if (ctx.isIdle()) pi.sendUserMessage(post.message);
 		else pi.sendUserMessage(post.message, { deliverAs: "followUp" });
 	}
@@ -521,7 +644,8 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 						return;
 					}
 					void handlePostedEvent(event, ctx).catch((error) => {
-						ctx.ui.notify(`Remote message failed: ${errorMessage(error)}`, "warning");
+						if (context && enabled) context.ui.notify(`Remote message failed: ${errorMessage(error)}`, "warning");
+						else console.error(`Remote message failed: ${errorMessage(error)}`);
 					});
 				} catch {
 					// Ignore malformed and non-JSON websocket messages.
@@ -598,6 +722,36 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		ctx.ui.notify("Remote mode disabled", "info");
 	}
 
+	pi.registerCommand("remote-reload", {
+		description: "Reload Pi resources for a Mattermost request",
+		handler: async (_args, ctx) => {
+			const sessionId = ctx.sessionManager.getSessionId();
+			const attempt = reloadSignal.__piRemoteReloadPending;
+			if (attempt?.sessionId !== sessionId || !config || !rootPostId) return;
+			// Capture plain transport data; ctx and pi become invalid after reload.
+			const { url, token, channelId } = config;
+			const postId = rootPostId;
+			const report = async (message: string) => {
+				const response = await fetch(`${url}/api/v4/posts`, {
+					method: "POST",
+					headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+					body: JSON.stringify({ channel_id: channelId, root_id: postId, message }),
+				});
+				if (!response.ok) console.error(`Could not report reload result: Mattermost ${response.status}`);
+			};
+			try {
+				// Pi's interactive reload declines requests made while streaming.
+				await ctx.waitForIdle();
+				await ctx.reload();
+				if (reloadSignal.__piRemoteReloadPending === attempt) delete reloadSignal.__piRemoteReloadPending;
+				await report(attempt.started ? "[reload successful]" : "[reload failed: Pi did not complete the reload]");
+			} catch (error) {
+				if (reloadSignal.__piRemoteReloadPending === attempt) delete reloadSignal.__piRemoteReloadPending;
+				await report(`[reload failed: ${errorMessage(error)}]`);
+			}
+		},
+	});
+
 	pi.registerCommand("remote", {
 		description: "Control Mattermost remote mode (on, off, status, ping)",
 		handler: async (args, ctx) => {
@@ -662,6 +816,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			if (params.title !== undefined) {
 				const manualTitle = oneLine(params.title, 100);
 				if (!manualTitle) throw new Error("The remote session title cannot be empty");
+				titleGenerationId += 1;
 				title = manualTitle;
 				titleSource = "manual";
 				pi.setSessionName(manualTitle);
@@ -708,6 +863,9 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			if (state.status === "active" || state.status === "done") threadStatus = state.status;
 			if (typeof state.titleAttempted === "boolean") titleAttempted = state.titleAttempted;
 		}
+		if (reloadSignal.__piRemoteReloadPending?.sessionId === sessionId && _event.reason === "reload") {
+			reloadSignal.__piRemoteReloadPending.started = true;
+		}
 		const sessionName = pi.getSessionName();
 		if (sessionName && sessionName !== title) {
 			title = sessionName;
@@ -722,9 +880,12 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		setStatus(ctx);
 	});
 
+	pi.on("session_tree", () => { titleGenerationId += 1; });
+
 	pi.on("session_info_changed", (event, ctx) => {
 		const nextTitle = event.name?.trim() || undefined;
 		if (nextTitle === title) return;
+		titleGenerationId += 1;
 		title = nextTitle;
 		titleSource = "manual";
 		persistState(ctx);
@@ -804,6 +965,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", () => {
+		titleGenerationId += 1;
 		enabled = false;
 		activationId += 1;
 		finalAssistantText = undefined;
