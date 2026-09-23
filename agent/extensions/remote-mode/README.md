@@ -33,6 +33,7 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 
 ```text
 !help                         (all commands, with status)
+!git <args>                   (run Git in Pi's working directory; unrestricted)
 !token / !tokens              (help + footer-style stats)
 !token status                 (alias: !tokens status)
 !skill / !skill help          (usage; does not invoke a skill)
@@ -55,6 +56,8 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 !new session                 (parallel Pi in a new tmux window, old thread stays online)
 !close this                  (disconnect and close this tmux window)
 ```
+
+`!git` invokes the Git executable directly with shell-style quoted arguments, without a shell or model turn. Git aliases and hooks still run normally. Bare `!git` shows usage. Output (up to 64 KB), errors, and the exit status are posted to the thread; commands time out after two minutes. Anyone who can reply in the session thread can run unrestricted Git commands with Pi's OS permissions. Interactive prompts and pagers are disabled.
 
 Skill names must match a loaded skill exactly. An unknown name returns a hint rather than starting a model turn; skill invocations queue as follow-ups while Pi is busy. `help`, `list`, `search`, and `filter` are reserved subcommands.
 
