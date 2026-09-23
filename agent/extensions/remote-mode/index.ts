@@ -286,57 +286,80 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			ctx.ui.notify(`No approved remote title model is configured for ${provider ?? "the active provider"}`, "warning");
 			return;
 		}
-		const model = candidates
+		const models = candidates
 			.map((id) => ctx.modelRegistry.find(provider, id))
-			.find((item) => item !== undefined && ctx.modelRegistry.hasConfiguredAuth(item));
-		if (!model) {
+			.filter((item): item is Exclude<typeof item, undefined> =>
+				item !== undefined && ctx.modelRegistry.hasConfiguredAuth(item),
+			);
+		if (models.length === 0) {
 			ctx.ui.notify(`No approved remote title model is available for ${provider}`, "warning");
 			return;
 		}
 
-		try {
-			const transcript = titleContext(ctx, triggeringText);
-			const outputController = new AbortController();
-			const signals = [outputController.signal, AbortSignal.timeout(15_000)];
-			if (operationController) signals.push(operationController.signal);
-			const stream = ctx.modelRegistry.streamSimple(
-				model,
-				{
-					systemPrompt: "Create a concise 3-8 word title for this coding conversation. Return only the title, with no quotes or punctuation wrapper.",
-					messages: [{ role: "user", content: transcript, timestamp: Date.now() }],
-					tools: [],
-				},
-				{ maxTokens: 24, reasoning: "minimal", temperature: 0.2, signal: AbortSignal.any(signals) },
-			);
-			let streamedTextLength = 0;
-			for await (const event of stream) {
-				if (event.type !== "text_delta") continue;
-				streamedTextLength += event.delta.length;
-				if (streamedTextLength > 160) outputController.abort();
-			}
-			const result = await stream.result();
-			const generated = oneLine(
-				result.content.filter((block) => block.type === "text").map((block) => block.text).join(" "),
-				100,
-			)
-				.replace(/^["'`]+|["'`]+$/g, "")
-				.trim();
-			const wordCount = generated.split(/\s+/).filter(Boolean).length;
+		const transcript = titleContext(ctx, triggeringText);
+		const failures: string[] = [];
+		for (const model of models) {
 			if (
-				!generated || wordCount < 3 || wordCount > 8 || result.stopReason === "error" || result.stopReason === "aborted" ||
 				ctx.sessionManager.getSessionId() !== targetSessionId || activationId !== targetActivationId ||
 				!enabled || titleSource !== undefined
 			) return;
-			title = generated;
-			titleSource = "generated";
-			pi.setSessionName(generated);
-			persistState(ctx);
-			await patchRootPost(ctx);
-		} catch (error) {
-			if ((error as Error).name !== "AbortError") {
-				ctx.ui.notify(`Could not generate remote session title: ${errorMessage(error)}`, "warning");
+			try {
+				const outputController = new AbortController();
+				const signals = [outputController.signal, AbortSignal.timeout(15_000)];
+				if (operationController) signals.push(operationController.signal);
+				const stream = ctx.modelRegistry.streamSimple(
+					model,
+					{
+						systemPrompt: "Create a concise 3-8 word title for this coding conversation. Return only the title, with no quotes or punctuation wrapper.",
+						messages: [{ role: "user", content: transcript, timestamp: Date.now() }],
+						tools: [],
+					},
+					{ maxTokens: 24, reasoning: "minimal", signal: AbortSignal.any(signals) },
+				);
+				let streamedTextLength = 0;
+				for await (const event of stream) {
+					if (event.type !== "text_delta") continue;
+					streamedTextLength += event.delta.length;
+					if (streamedTextLength > 160) outputController.abort();
+				}
+				const result = await stream.result();
+				const generated = oneLine(
+					result.content.filter((block) => block.type === "text").map((block) => block.text).join(" "),
+					100,
+				)
+					.replace(/^["'`]+|["'`]+$/g, "")
+					.trim();
+				const wordCount = generated.split(/\s+/).filter(Boolean).length;
+				if (
+					result.stopReason === "error" || result.stopReason === "aborted" ||
+					!generated || wordCount < 3 || wordCount > 8
+				) {
+					failures.push(`${model.id}: ${result.errorMessage ?? "invalid title response"}`);
+					continue;
+				}
+				if (
+					ctx.sessionManager.getSessionId() !== targetSessionId || activationId !== targetActivationId ||
+					!enabled || titleSource !== undefined
+				) return;
+				title = generated;
+				titleSource = "generated";
+				pi.setSessionName(generated);
+				persistState(ctx);
+				try {
+					await patchRootPost(ctx);
+				} catch (error) {
+					ctx.ui.notify(`Could not update Mattermost session title: ${errorMessage(error)}`, "warning");
+				}
+				return;
+			} catch (error) {
+				failures.push(`${model.id}: ${errorMessage(error)}`);
 			}
 		}
+		if (
+			ctx.sessionManager.getSessionId() !== targetSessionId || activationId !== targetActivationId ||
+			!enabled || titleSource !== undefined
+		) return;
+		ctx.ui.notify(`Could not generate remote session title (${failures.join("; ")})`, "warning");
 	}
 
 	function setMetadataToolEnabled(toolEnabled: boolean): void {
