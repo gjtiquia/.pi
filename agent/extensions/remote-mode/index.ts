@@ -5,6 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
 import { handleModelCommand } from "./model-commands.js";
 import { dispatchRemoteCommand, type CommandDefinition } from "./command-router.js";
+import { handleSkillCommand, SKILL_USAGE } from "./skill-commands.js";
 import { closeCurrentTmuxWindow, launchRemoteTmuxWindow } from "./tmux-windows.js";
 
 const STATE_TYPE = "remote-mode-thread";
@@ -555,6 +556,11 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		};
 		return [
 			{
+				name: "skill",
+				usage: SKILL_USAGE,
+				actions: {}, // Skill prompts need their original whitespace; handled before the generic router.
+			},
+			{
 				name: "token", aliases: ["tokens"],
 				usage: ["!token / !tokens — help + stats", "!token status / !tokens status — stats"],
 				status: () => tokenStatus(ctx),
@@ -685,7 +691,16 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	}
 
 	async function handleRemoteCommand(message: string, ctx: ExtensionContext): Promise<boolean> {
-		const result = await dispatchRemoteCommand(message, commandDefinitions(ctx));
+		let skillResult: ReturnType<typeof handleSkillCommand> = { handled: false };
+		if (/^!skill(?=\s|$)/.test(message.trimStart())) {
+			skillResult = handleSkillCommand(message, pi.getCommands(), (prompt) => {
+				pi.sendUserMessage(prompt, {
+					...(ctx.isIdle() ? {} : { deliverAs: "followUp" as const }),
+					expandPromptTemplates: true,
+				});
+			});
+		}
+		const result = skillResult.handled ? skillResult : await dispatchRemoteCommand(message, commandDefinitions(ctx));
 		if (!result.handled) return false;
 		if (result.response) await postReply(ctx, result.response);
 		return true;

@@ -35,6 +35,11 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 !help                         (all commands, with status)
 !token / !tokens              (help + footer-style stats)
 !token status                 (alias: !tokens status)
+!skill / !skill help          (usage; does not invoke a skill)
+!skill list                   (loaded skill names, one per line)
+!skill search <keywords>      (case-insensitive name/description search; all words match)
+!skill filter <keywords>      (alias: !skill search)
+!skill <skill-name> [prompt]  (invoke /skill:<skill-name> [prompt] in Pi)
 !remote                       (help + status)
 !remote set status done|active
 !remote set title <title>
@@ -50,6 +55,8 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 !new session                 (parallel Pi in a new tmux window, old thread stays online)
 !close this                  (disconnect and close this tmux window)
 ```
+
+Skill names must match a loaded skill exactly. An unknown name returns a hint rather than starting a model turn; skill invocations queue as follow-ups while Pi is busy. `help`, `list`, `search`, and `filter` are reserved subcommands.
 
 Bare `!reload`, `!new`, and `!close` show help and status instead of acting. `!new session` starts a fresh Pi in a shell-backed tmux window (with `/remote on` and `/remote ping` as startup commands), leaving the current session and window untouched. Pi exiting does not close the new window. Outside tmux, `!new session` does nothing. `!close this` acknowledges the request, disconnects remote mode, and closes its current tmux window; outside tmux it disconnects but leaves Pi open.
 
