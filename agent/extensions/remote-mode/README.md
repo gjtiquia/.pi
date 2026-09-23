@@ -12,7 +12,7 @@ The bot account must be able to read and post in the configured channel. Any non
 
 - `/remote` toggles remote mode.
 - `/remote on` enables it.
-- `/remote off` disconnects and stops inbound and outbound relaying.
+- `/remote off` disconnects and stops inbound and outbound relaying. An unfinished card becomes ❌ Disconnected; a done card stays ✅ Done.
 - `/remote status` reports its state.
 - `/remote ping` posts `ping` to the session's Mattermost thread, even when remote mode is off.
 
@@ -20,29 +20,38 @@ Enabling or pinging creates the session's root post if needed. The root is a com
 
 ```text
 💬 Project: example-project
+Status: Active
 Title: (pending)
 Session ID: 01a0…
 ```
 
 After the next user message, remote mode generates a short title in the background and uses it as both the card title and Pi session name. Title generation tries hardcoded low-cost models for the active provider in order; it never switches providers or falls back to the active model. Supported candidates are `openai-codex/gpt-5.3-codex-spark`, `openai-codex/gpt-6-luna`, `opencode-go/deepseek-v4.1-flash`, and `opencode-go/glm-5.3-flash`.
 
-Users can ask Pi naturally to rename the remote session, mark it done (`✅`), or put it back in progress (`💬`). A manual title wins over pending background generation. The built-in `/name` command also updates the Mattermost title. Done is visual metadata only and does not disable remote mode.
+Users can ask Pi naturally to rename the remote session, mark it done (`✅`), or put it back in progress (`💬` when connected, `❌` when disconnected). A manual title wins over pending background generation. The built-in `/name` command also updates the Mattermost title. Done is work status independent of connectivity: ✅ Done remains done when remote mode is off; an unfinished disconnected session shows ❌ Disconnected.
 
-Mattermost replies beginning with a recognized `!` command are handled directly, without a main-model turn. Other replies (including unknown `!` commands) remain ordinary prompts:
+Mattermost replies beginning with a recognized `!` command are handled directly, without a main-model turn. Other replies (including unknown `!` commands) remain ordinary prompts. Bare commands and `help` show usage plus current status; actions require explicit arguments:
 
 ```text
-!help
+!help                         (all commands, with status)
+!token / !tokens              (help + footer-style stats)
 !token status                 (alias: !tokens status)
+!remote                       (help + status)
 !remote set status done|active
 !remote set title <title>
 !remote update               (regenerate title with a cheap model and refresh the card)
-!discuss [on|off|status]      (bare command toggles)
-!model [status|help|list]     (list groups the full catalog by provider)
+!discuss                      (help + status, does not toggle)
+!discuss on|off|status
+!model                        (help + status)
+!model list                   (full catalog grouped by provider)
 !model set model <model>      (current provider)
 !model set model <provider> <model>
 !model set effort off|minimal|low|medium|high|xhigh|max
-!reload                      (posts progress and success in the thread)
+!reload this                  (posts progress and result in the thread)
+!new session                 (parallel Pi in a new tmux window, old thread stays online)
+!close this                  (disconnect and close this tmux window)
 ```
+
+Bare `!reload`, `!new`, and `!close` show help and status instead of acting. `!new session` starts a fresh Pi in a shell-backed tmux window (with `/remote on` and `/remote ping` as startup commands), leaving the current session and window untouched. Pi exiting does not close the new window. Outside tmux, `!new session` does nothing. `!close this` acknowledges the request, disconnects remote mode, and closes its current tmux window; outside tmux it disconnects but leaves Pi open.
 
 `!remote update` can replace even a manually chosen title; if generation fails, it refreshes the card with the existing title and status. Remote reload preserves discuss mode, as does terminal reload.
 
