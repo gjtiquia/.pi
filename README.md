@@ -77,6 +77,7 @@ npm ls --prefix ~/.pi/agent/extensions/notify --depth=0
 
 ## notes
 
+- design skills and extensions as composable, single-purpose operations (Unix philosophy); avoid implicit side effects that perform a second action
 - `/agent/sessions/` is ignored because it grows quickly and does not need to be backed up yet
 - `/agent/models-store.json` is ignored because it regenerates
 - `/agent/auth.json` is ignored because it contains credentials

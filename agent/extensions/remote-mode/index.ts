@@ -3,8 +3,36 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
+import { handleModelCommand } from "./model-commands.js";
+import { dispatchRemoteCommand, type CommandDefinition } from "./command-router.js";
+import { handleSkillCommand, SKILL_USAGE } from "./skill-commands.js";
+import { handleGitCommand, GIT_USAGE } from "./git-commands.js";
+import { handleShellCommand, SHELL_USAGE } from "./shell-commands.js";
+import { closeCurrentTmuxWindow, launchRemoteTmuxWindow } from "./tmux-windows.js";
 
 const STATE_TYPE = "remote-mode-thread";
+const MAX_REPLY_CHARS = 14_000;
+const CARD_UPDATE_TIMEOUT_MS = 5_000;
+const CLOSE_ACK_TIMEOUT_MS = 3_000;
+
+async function waitBounded<T>(work: Promise<T>, milliseconds: number): Promise<T> {
+	let timer: ReturnType<typeof setTimeout> | undefined;
+	try {
+		return await Promise.race([
+			work,
+			new Promise<never>((_, reject) => {
+				timer = setTimeout(() => reject(new Error("Mattermost request timed out")), milliseconds);
+			}),
+		]);
+	} finally {
+		if (timer) clearTimeout(timer);
+	}
+}
+// A process-local handoff between the old and new extension runtimes during reload.
+const lifecycleSignal = globalThis as typeof globalThis & {
+	__piRemoteLifecycle?: { sessionId: string; kind: "new" | "reload" | "close" };
+	__piRemoteReloadPending?: { sessionId: string; started: boolean };
+};
 const STATUS_KEY = "remote-mode";
 const METADATA_TOOL_NAME = "remote_session_metadata";
 const RECONNECT_DELAY_MS = 5_000;
@@ -135,6 +163,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	let titleSource: ThreadState["titleSource"];
 	let threadStatus: NonNullable<ThreadState["status"]> = "active";
 	let titleAttempted = false;
+	let titleGenerationId = 0;
 	let finalAssistantText: string | undefined;
 	let assistantActivationId: number | undefined;
 	let activityRun: ActivityRun | undefined;
@@ -194,8 +223,12 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		pi.appendEntry<ThreadState>(STATE_TYPE, currentState(ctx));
 	}
 
-	function renderRootPost(ctx: ExtensionContext): string {
-		const emoji = threadStatus === "done" ? "✅" : "💬";
+	function displayStatus(connected = enabled): string {
+		return threadStatus === "done" ? "Done" : connected ? "Active" : "Disconnected";
+	}
+
+	function renderRootPost(ctx: ExtensionContext, connected = enabled): string {
+		const emoji = threadStatus === "done" ? "✅" : connected ? "💬" : "❌";
 		return `${emoji} Project: ${basename(ctx.cwd)}\nTitle: ${title ?? "(pending)"}\nSession ID: ${ctx.sessionManager.getSessionId()}`;
 	}
 
@@ -206,13 +239,13 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		const targetSessionId = ctx.sessionManager.getSessionId();
 		const pending = (async () => {
 			if (!config) throw new Error("Mattermost remote mode is not configured");
-			// Do not abort root creation when remote mode is toggled off. If Mattermost
-			// accepts the post, retaining its ID prevents a second thread on re-enable.
+			// Start offline: if Pi exits before creation finishes, no active orphan
+			// card is left behind. Retain the ID even if remote mode toggles off.
 			const post = await api<MattermostPost>(
 				"/posts",
 				{
 					method: "POST",
-					body: JSON.stringify({ channel_id: config.channelId, message: renderRootPost(ctx) }),
+					body: JSON.stringify({ channel_id: config.channelId, message: renderRootPost(ctx, false) }),
 				},
 				null,
 			);
@@ -267,8 +300,10 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			const text = messageText(entry.message);
 			if (text) messages.push(`${entry.message.role === "user" ? "User" : "Assistant"}: ${text}`);
 		}
-		const trigger = `User: ${triggeringText}`;
-		if (messages.at(-1) !== trigger) messages.push(trigger);
+		if (triggeringText) {
+			const trigger = `User: ${triggeringText}`;
+			if (messages.at(-1) !== trigger) messages.push(trigger);
+		}
 		return messages.join("\n\n").slice(-MAX_TITLE_CONTEXT_CHARS);
 	}
 
@@ -277,7 +312,14 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		targetSessionId: string,
 		targetActivationId: number,
 		triggeringText: string,
-	): Promise<void> {
+		force = false,
+	): Promise<string | undefined> {
+		const generationId = ++titleGenerationId;
+		const initialTitle = title;
+		const initialSource = titleSource;
+		const stillCurrent = () => activationId === targetActivationId && enabled && generationId === titleGenerationId &&
+			ctx.sessionManager.getSessionId() === targetSessionId &&
+			(force ? title === initialTitle && titleSource === initialSource : titleSource === undefined);
 		titleAttempted = true;
 		persistState(ctx);
 		const provider = ctx.model?.provider;
@@ -299,10 +341,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		const transcript = titleContext(ctx, triggeringText);
 		const failures: string[] = [];
 		for (const model of models) {
-			if (
-				ctx.sessionManager.getSessionId() !== targetSessionId || activationId !== targetActivationId ||
-				!enabled || titleSource !== undefined
-			) return;
+			if (!stillCurrent()) return;
 			try {
 				const outputController = new AbortController();
 				const signals = [outputController.signal, AbortSignal.timeout(15_000)];
@@ -337,10 +376,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 					failures.push(`${model.id}: ${result.errorMessage ?? "invalid title response"}`);
 					continue;
 				}
-				if (
-					ctx.sessionManager.getSessionId() !== targetSessionId || activationId !== targetActivationId ||
-					!enabled || titleSource !== undefined
-				) return;
+				if (!stillCurrent()) return;
 				title = generated;
 				titleSource = "generated";
 				pi.setSessionName(generated);
@@ -350,15 +386,12 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 				} catch (error) {
 					ctx.ui.notify(`Could not update Mattermost session title: ${errorMessage(error)}`, "warning");
 				}
-				return;
+				return generated;
 			} catch (error) {
 				failures.push(`${model.id}: ${errorMessage(error)}`);
 			}
 		}
-		if (
-			ctx.sessionManager.getSessionId() !== targetSessionId || activationId !== targetActivationId ||
-			!enabled || titleSource !== undefined
-		) return;
+		if (!stillCurrent()) return;
 		ctx.ui.notify(`Could not generate remote session title (${failures.join("; ")})`, "warning");
 	}
 
@@ -454,6 +487,243 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		activityRuns.delete(run);
 	}
 
+	async function postReply(ctx: ExtensionContext, text: string): Promise<void> {
+		if (!config) throw new Error("Mattermost remote mode is not configured");
+		const rootId = await ensureRootPost(ctx);
+		const lines = text.split("\n");
+		let chunk = "";
+		for (const line of lines) {
+			// A single catalog line should never approach this limit, but keep chunks bounded.
+			for (const part of line.match(/.{1,13000}/g) ?? [""]) {
+				if (chunk && chunk.length + part.length + 1 > MAX_REPLY_CHARS) {
+					await api<MattermostPost>("/posts", { method: "POST", body: JSON.stringify({ channel_id: config.channelId, root_id: rootId, message: chunk }) });
+					chunk = "";
+				}
+				chunk += (chunk ? "\n" : "") + part;
+			}
+		}
+		if (chunk) await api<MattermostPost>("/posts", {
+			method: "POST", body: JSON.stringify({ channel_id: config.channelId, root_id: rootId, message: chunk }),
+		});
+	}
+
+	function formatTokens(count: number): string {
+		if (count < 1000) return String(count);
+		if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+		if (count < 1000000) return `${Math.round(count / 1000)}k`;
+		if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
+		return `${Math.round(count / 1000000)}M`;
+	}
+
+	function tokenStatus(ctx: ExtensionContext): string {
+		const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
+		let latestCacheHitRate: number | undefined;
+		for (const entry of ctx.sessionManager.getEntries()) {
+			const usage = entry.type === "usage" ? entry.usage
+				: entry.type === "message" && entry.message.role === "assistant" ? entry.message.usage
+				: entry.type === "message" && entry.message.role === "toolResult" ? entry.message.usage
+				: (entry.type === "branch_summary" || entry.type === "compaction") ? entry.usage : undefined;
+			if (!usage) continue;
+			totals.input += usage.input;
+			totals.output += usage.output;
+			totals.cacheRead += usage.cacheRead;
+			totals.cacheWrite += usage.cacheWrite;
+			totals.cost += usage.cost.total;
+			if (entry.type === "message" && entry.message.role === "assistant") {
+				const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
+				latestCacheHitRate = prompt > 0 ? usage.cacheRead / prompt * 100 : undefined;
+			}
+		}
+		const parts: string[] = [];
+		if (totals.input) parts.push(`↑${formatTokens(totals.input)}`);
+		if (totals.output) parts.push(`↓${formatTokens(totals.output)}`);
+		if (totals.cacheRead) parts.push(`R${formatTokens(totals.cacheRead)}`);
+		if (totals.cacheWrite) parts.push(`W${formatTokens(totals.cacheWrite)}`);
+		if ((totals.cacheRead || totals.cacheWrite) && latestCacheHitRate !== undefined) {
+			parts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
+		}
+		if (totals.cost) parts.push(`$${totals.cost.toFixed(3)}`);
+		const usage = ctx.getContextUsage();
+		parts.push(`${usage?.percent == null ? "?" : usage.percent.toFixed(1) + "%"}/${formatTokens(usage?.contextWindow ?? ctx.model?.contextWindow ?? 0)}`);
+		return parts.join(" ");
+	}
+
+	function commandDefinitions(ctx: ExtensionContext): CommandDefinition[] {
+		const discussStatus = () => `Discuss mode: ${process.env.PI_DISCUSS_MODE === "1" ? "on" : "off"}`;
+		const setDiscuss = (on: boolean) => {
+			const active = process.env.PI_DISCUSS_MODE === "1";
+			if (on === active) return `Discuss mode is already ${on ? "on" : "off"}.`;
+			pi.sendUserMessage("/discuss", { expandPromptTemplates: true });
+			return `Discuss mode: ${on ? "on" : "off"}`;
+		};
+		return [
+			{
+				name: "git",
+				usage: GIT_USAGE,
+				actions: {}, // Git accepts arbitrary arguments; handled before the generic router.
+			},
+			{
+				name: "shell", aliases: ["$"],
+				usage: SHELL_USAGE,
+				actions: {}, // Preserve the raw shell command; handled before the generic router.
+			},
+			{
+				name: "skill",
+				usage: SKILL_USAGE,
+				actions: {}, // Skill prompts need their original whitespace; handled before the generic router.
+			},
+			{
+				name: "token", aliases: ["tokens"],
+				usage: ["!token / !tokens — help + stats", "!token status / !tokens status — stats"],
+				status: () => tokenStatus(ctx),
+				actions: { status: { args: "none", run: () => tokenStatus(ctx) } },
+			},
+			{
+				name: "discuss",
+				usage: ["!discuss — help + status", "!discuss status", "!discuss on", "!discuss off"],
+				status: discussStatus,
+				actions: {
+				status: { args: "none", run: discussStatus },
+				on: { args: "none", run: () => setDiscuss(true) },
+				off: { args: "none", run: () => setDiscuss(false) },
+				},
+			},
+			{
+				name: "model",
+				usage: ["!model — help + status", "!model status", "!model list — all providers", "!model set model <model> — current provider", "!model set model <provider> <model>", "!model set effort <off|minimal|low|medium|high|xhigh|max>"],
+				status: () => handleModelCommand("status", pi, ctx),
+				actions: {
+					status: { args: "none", run: () => handleModelCommand("status", pi, ctx) },
+					list: { args: "none", run: () => handleModelCommand("list", pi, ctx) },
+					"set model": { args: "required", run: (args) => handleModelCommand(`set model ${args}`, pi, ctx) },
+					"set effort": { args: "required", run: (args) => handleModelCommand(`set effort ${args}`, pi, ctx) },
+				},
+			},
+			{
+				name: "remote",
+				usage: ["!remote — help + status", "!remote status", "!remote set status done|active", "!remote set title <title>", "!remote update — regenerate title and refresh card"],
+				status: () => `Remote: ${displayStatus()}, title “${title ?? "(pending)"}”, ${enabled ? authenticated ? "connected" : "connecting" : "off"}`,
+				actions: {
+					status: { args: "none", run: () => `Remote: ${displayStatus()}, title “${title ?? "(pending)"}”, ${enabled ? authenticated ? "connected" : "connecting" : "off"}` },
+					"set status": { args: "required", run: async (status) => {
+						if (status !== "done" && status !== "active") return "Status must be done or active. Use !remote help.";
+						threadStatus = status;
+						persistState(ctx);
+						await patchRootPost(ctx);
+						return `Remote status: ${threadStatus}.`;
+					} },
+					"set title": { args: "required", run: async (value) => {
+						const manualTitle = oneLine(value, 100);
+						if (!manualTitle) return "Title cannot be empty. Use !remote help.";
+						titleGenerationId += 1;
+						title = manualTitle;
+						titleSource = "manual";
+						pi.setSessionName(manualTitle);
+						persistState(ctx);
+						await patchRootPost(ctx);
+						return `Remote title: “${manualTitle}”.`;
+					} },
+					update: { args: "none", run: async () => {
+						const targetActivationId = activationId;
+						const targetGenerationId = titleGenerationId + 1;
+						const generated = await generateTitle(ctx, ctx.sessionManager.getSessionId(), targetActivationId, "", true);
+						if (activationId !== targetActivationId || !enabled || titleGenerationId !== targetGenerationId) return;
+						await patchRootPost(ctx);
+						return generated ? `Remote updated: ${threadStatus}, title “${title}”.` : `Remote card refreshed (${threadStatus}, title “${title ?? "(pending)"}”); title regeneration did not succeed.`;
+					} },
+				},
+			},
+			{
+				name: "reload",
+				usage: ["!reload — help + session status", "!reload this — reload Pi resources"],
+				status: () => `Session: ${ctx.sessionManager.getSessionId()}`,
+				actions: { this: { args: "none", run: async () => {
+					if (lifecycleSignal.__piRemoteLifecycle) return "A session operation is already in progress.";
+					const operation = { sessionId: ctx.sessionManager.getSessionId(), kind: "reload" as const };
+					lifecycleSignal.__piRemoteLifecycle = operation;
+					try {
+						await postReply(ctx, "[reload in progress]");
+						lifecycleSignal.__piRemoteReloadPending = { sessionId: operation.sessionId, started: false };
+						pi.sendUserMessage("/remote-reload", { expandPromptTemplates: true });
+					} catch (error) {
+						if (lifecycleSignal.__piRemoteLifecycle === operation) delete lifecycleSignal.__piRemoteLifecycle;
+						throw error;
+					}
+				} } },
+			},
+			{
+				name: "close",
+				usage: ["!close — help + session status", "!close this — disconnect remote and close this tmux window"],
+				status: () => `Session: ${ctx.sessionManager.getSessionId()} (${displayStatus()})`,
+				actions: { this: { args: "none", run: async () => {
+					if (lifecycleSignal.__piRemoteLifecycle) return "A session operation is already in progress.";
+					const operation = { sessionId: ctx.sessionManager.getSessionId(), kind: "close" as const };
+					lifecycleSignal.__piRemoteLifecycle = operation;
+					try {
+						try {
+							await waitBounded(postReply(ctx, "[closing this remote connection]"), CLOSE_ACK_TIMEOUT_MS);
+						} catch (error) {
+							ctx.ui.notify(`Could not announce remote close: ${errorMessage(error)}`, "warning");
+						}
+						const cardUpdated = await disable(ctx);
+						if (!cardUpdated) {
+							void postReply(ctx, "Remote disconnected, but the card update failed; closing the window anyway.")
+								.catch((error) => console.error(`Could not report card failure: ${errorMessage(error)}`));
+						}
+						try {
+							const result = await closeCurrentTmuxWindow();
+							return result.status === "not-tmux" ? "Remote disconnected. Pi remains open (not in tmux)." : undefined;
+						} catch (error) {
+							await postReply(ctx, `Remote disconnected, but could not close the tmux window: ${errorMessage(error)}`);
+						}
+					} finally {
+						if (lifecycleSignal.__piRemoteLifecycle === operation) delete lifecycleSignal.__piRemoteLifecycle;
+					}
+				} } },
+			},
+			{
+				name: "new",
+				usage: ["!new — help + session status", "!new session — separate remote-enabled Pi in a new tmux window"],
+				status: () => `Session: ${ctx.sessionManager.getSessionId()}`,
+				actions: { session: { args: "none", run: async () => {
+					if (lifecycleSignal.__piRemoteLifecycle) return "A session operation is already in progress.";
+					const operation = { sessionId: ctx.sessionManager.getSessionId(), kind: "new" as const };
+					lifecycleSignal.__piRemoteLifecycle = operation;
+					try {
+						const result = await launchRemoteTmuxWindow(ctx.cwd);
+						return result.status === "not-tmux"
+							? "Not inside tmux; no new session was started."
+							: `Started Pi in tmux window ${result.windowId}. This session remains connected.`;
+					} finally {
+						if (lifecycleSignal.__piRemoteLifecycle === operation) delete lifecycleSignal.__piRemoteLifecycle;
+					}
+				} } },
+			},
+		];
+	}
+
+	async function handleRemoteCommand(message: string, ctx: ExtensionContext): Promise<boolean> {
+		let skillResult: ReturnType<typeof handleSkillCommand> = { handled: false };
+		if (/^!skill(?=\s|$)/.test(message.trimStart())) {
+			skillResult = handleSkillCommand(message, pi.getCommands(), (prompt) => {
+				pi.sendUserMessage(prompt, {
+					...(ctx.isIdle() ? {} : { deliverAs: "followUp" as const }),
+					expandPromptTemplates: true,
+				});
+			});
+		}
+		const gitResult = /^!git(?=\s|$)/.test(message.trimStart())
+			? { handled: true, response: await handleGitCommand(message, ctx.cwd) }
+			: { handled: false };
+		const shellResult = /^!(?:\$|shell)(?=\s|$)/.test(message.trimStart())
+			? { handled: true, response: await handleShellCommand(message, ctx.cwd, ctx.isProjectTrusted()) }
+			: { handled: false };
+		const result = skillResult.handled ? skillResult : gitResult.handled ? gitResult : shellResult.handled ? shellResult : await dispatchRemoteCommand(message, commandDefinitions(ctx));
+		if (!result.handled) return false;
+		if (result.response) await postReply(ctx, result.response);
+		return true;
+	}
+
 	async function handlePostedEvent(event: MattermostEvent, ctx: ExtensionContext): Promise<void> {
 		if (!enabled || event.event !== "posted" || !event.data?.post || !config || !rootPostId) return;
 
@@ -475,6 +745,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			return;
 		}
 
+		if (await handleRemoteCommand(post.message, ctx)) return;
 		if (ctx.isIdle()) pi.sendUserMessage(post.message);
 		else pi.sendUserMessage(post.message, { deliverAs: "followUp" });
 	}
@@ -521,7 +792,8 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 						return;
 					}
 					void handlePostedEvent(event, ctx).catch((error) => {
-						ctx.ui.notify(`Remote message failed: ${errorMessage(error)}`, "warning");
+						if (context && enabled) context.ui.notify(`Remote message failed: ${errorMessage(error)}`, "warning");
+						else console.error(`Remote message failed: ${errorMessage(error)}`);
 					});
 				} catch {
 					// Ignore malformed and non-JSON websocket messages.
@@ -586,7 +858,8 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		ctx.ui.notify("Remote mode enabled", "info");
 	}
 
-	function disable(ctx: ExtensionContext): void {
+	async function disable(ctx: ExtensionContext): Promise<boolean> {
+		if (!enabled) return true;
 		enabled = false;
 		activationId += 1;
 		finalAssistantText = undefined;
@@ -594,9 +867,55 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		resetActivity();
 		persistState(ctx);
 		setMetadataToolEnabled(false);
-		disconnect(ctx);
+		let cardUpdated = true;
+		try {
+			// Bound cleanup time even if Mattermost stalls. The queued patch may
+			// still finish later; new cards begin Disconnected for this reason.
+			if (rootPostId) await waitBounded(patchRootPost(ctx, false), CARD_UPDATE_TIMEOUT_MS);
+		} catch (error) {
+			cardUpdated = false;
+			ctx.ui.notify(`Could not update remote session card: ${errorMessage(error)}`, "warning");
+		} finally {
+			disconnect(ctx);
+		}
 		ctx.ui.notify("Remote mode disabled", "info");
+		return cardUpdated;
 	}
+
+	pi.registerCommand("remote-reload", {
+		description: "Reload Pi resources for a Mattermost request",
+		handler: async (_args, ctx) => {
+			const sessionId = ctx.sessionManager.getSessionId();
+			const operation = lifecycleSignal.__piRemoteLifecycle;
+			const attempt = lifecycleSignal.__piRemoteReloadPending;
+			if (attempt?.sessionId !== sessionId || !config || !rootPostId) return;
+			// Capture plain transport data; ctx and pi become invalid after reload.
+			const { url, token, channelId } = config;
+			const postId = rootPostId;
+			const report = async (message: string) => {
+				const response = await fetch(`${url}/api/v4/posts`, {
+					method: "POST",
+					headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+					body: JSON.stringify({ channel_id: channelId, root_id: postId, message }),
+				});
+				if (!response.ok) console.error(`Could not report reload result: Mattermost ${response.status}`);
+			};
+			let outcome: string;
+			try {
+				// Pi's interactive reload declines requests made while streaming.
+				await ctx.waitForIdle();
+				await ctx.reload();
+				outcome = attempt.started ? "[reload successful]" : "[reload failed: Pi did not complete the reload]";
+			} catch (error) {
+				outcome = `[reload failed: ${errorMessage(error)}]`;
+			} finally {
+				if (lifecycleSignal.__piRemoteReloadPending === attempt) delete lifecycleSignal.__piRemoteReloadPending;
+				if (lifecycleSignal.__piRemoteLifecycle === operation) delete lifecycleSignal.__piRemoteLifecycle;
+			}
+			try { await report(outcome); }
+			catch (error) { console.error(`Could not report reload result: ${errorMessage(error)}`); }
+		},
+	});
 
 	pi.registerCommand("remote", {
 		description: "Control Mattermost remote mode (on, off, status, ping)",
@@ -636,7 +955,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 				return;
 			}
 			if (action === "on" || (!action && !enabled)) enable(ctx);
-			else disable(ctx);
+			else await disable(ctx);
 		},
 	});
 
@@ -662,6 +981,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			if (params.title !== undefined) {
 				const manualTitle = oneLine(params.title, 100);
 				if (!manualTitle) throw new Error("The remote session title cannot be empty");
+				titleGenerationId += 1;
 				title = manualTitle;
 				titleSource = "manual";
 				pi.setSessionName(manualTitle);
@@ -708,6 +1028,9 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			if (state.status === "active" || state.status === "done") threadStatus = state.status;
 			if (typeof state.titleAttempted === "boolean") titleAttempted = state.titleAttempted;
 		}
+		if (lifecycleSignal.__piRemoteReloadPending?.sessionId === sessionId && _event.reason === "reload") {
+			lifecycleSignal.__piRemoteReloadPending.started = true;
+		}
 		const sessionName = pi.getSessionName();
 		if (sessionName && sessionName !== title) {
 			title = sessionName;
@@ -722,9 +1045,12 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		setStatus(ctx);
 	});
 
+	pi.on("session_tree", () => { titleGenerationId += 1; });
+
 	pi.on("session_info_changed", (event, ctx) => {
 		const nextTitle = event.name?.trim() || undefined;
 		if (nextTitle === title) return;
+		titleGenerationId += 1;
 		title = nextTitle;
 		titleSource = "manual";
 		persistState(ctx);
@@ -803,7 +1129,10 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("session_shutdown", () => {
+	pi.on("session_shutdown", async (event) => {
+		// Reload is temporary; leaving a session permanently is not.
+		if (event.reason !== "reload" && context && enabled) await disable(context);
+		titleGenerationId += 1;
 		enabled = false;
 		activationId += 1;
 		finalAssistantText = undefined;
