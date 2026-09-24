@@ -7,6 +7,7 @@ import { handleModelCommand } from "./model-commands.js";
 import { dispatchRemoteCommand, type CommandDefinition } from "./command-router.js";
 import { handleSkillCommand, SKILL_USAGE } from "./skill-commands.js";
 import { handleGitCommand, GIT_USAGE } from "./git-commands.js";
+import { handleShellCommand, SHELL_USAGE } from "./shell-commands.js";
 import { closeCurrentTmuxWindow, launchRemoteTmuxWindow } from "./tmux-windows.js";
 
 const STATE_TYPE = "remote-mode-thread";
@@ -228,7 +229,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 
 	function renderRootPost(ctx: ExtensionContext, connected = enabled): string {
 		const emoji = threadStatus === "done" ? "✅" : connected ? "💬" : "❌";
-		return `${emoji} Project: ${basename(ctx.cwd)}\nStatus: ${displayStatus(connected)}\nTitle: ${title ?? "(pending)"}\nSession ID: ${ctx.sessionManager.getSessionId()}`;
+		return `${emoji} Project: ${basename(ctx.cwd)}\nTitle: ${title ?? "(pending)"}\nSession ID: ${ctx.sessionManager.getSessionId()}`;
 	}
 
 	async function ensureRootPost(ctx: ExtensionContext): Promise<string> {
@@ -562,6 +563,11 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 				actions: {}, // Git accepts arbitrary arguments; handled before the generic router.
 			},
 			{
+				name: "shell", aliases: ["$"],
+				usage: SHELL_USAGE,
+				actions: {}, // Preserve the raw shell command; handled before the generic router.
+			},
+			{
 				name: "skill",
 				usage: SKILL_USAGE,
 				actions: {}, // Skill prompts need their original whitespace; handled before the generic router.
@@ -709,7 +715,10 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		const gitResult = /^!git(?=\s|$)/.test(message.trimStart())
 			? { handled: true, response: await handleGitCommand(message, ctx.cwd) }
 			: { handled: false };
-		const result = skillResult.handled ? skillResult : gitResult.handled ? gitResult : await dispatchRemoteCommand(message, commandDefinitions(ctx));
+		const shellResult = /^!(?:\$|shell)(?=\s|$)/.test(message.trimStart())
+			? { handled: true, response: await handleShellCommand(message, ctx.cwd, ctx.isProjectTrusted()) }
+			: { handled: false };
+		const result = skillResult.handled ? skillResult : gitResult.handled ? gitResult : shellResult.handled ? shellResult : await dispatchRemoteCommand(message, commandDefinitions(ctx));
 		if (!result.handled) return false;
 		if (result.response) await postReply(ctx, result.response);
 		return true;

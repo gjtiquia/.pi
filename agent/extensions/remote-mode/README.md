@@ -12,7 +12,7 @@ The bot account must be able to read and post in the configured channel. Any non
 
 - `/remote` toggles remote mode.
 - `/remote on` enables it.
-- `/remote off` disconnects and stops inbound and outbound relaying. An unfinished card becomes ❌ Disconnected; a done card stays ✅ Done.
+- `/remote off` disconnects and stops inbound and outbound relaying. An unfinished card switches to ❌; a done card stays ✅.
 - `/remote status` reports its state.
 - `/remote ping` posts `ping` to the session's Mattermost thread, even when remote mode is off.
 
@@ -20,20 +20,20 @@ Enabling or pinging creates the session's root post if needed. The root is a com
 
 ```text
 💬 Project: example-project
-Status: Active
 Title: (pending)
 Session ID: 01a0…
 ```
 
 After the next user message, remote mode generates a short title in the background and uses it as both the card title and Pi session name. Title generation tries hardcoded low-cost models for the active provider in order; it never switches providers or falls back to the active model. Supported candidates are `openai-codex/gpt-5.3-codex-spark`, `openai-codex/gpt-6-luna`, `opencode-go/deepseek-v4.1-flash`, and `opencode-go/glm-5.3-flash`.
 
-Users can ask Pi naturally to rename the remote session, mark it done (`✅`), or put it back in progress (`💬` when connected, `❌` when disconnected). A manual title wins over pending background generation. The built-in `/name` command also updates the Mattermost title. Done is work status independent of connectivity: ✅ Done remains done when remote mode is off; an unfinished disconnected session shows ❌ Disconnected.
+Users can ask Pi naturally to rename the remote session, mark it done (`✅`), or put it back in progress (`💬` when connected, `❌` when disconnected). A manual title wins over pending background generation. The built-in `/name` command also updates the Mattermost title. Done is work status independent of connectivity: ✅ remains when remote mode is off; an unfinished disconnected session shows ❌.
 
 Mattermost replies beginning with a recognized `!` command are handled directly, without a main-model turn. Other replies (including unknown `!` commands) remain ordinary prompts. Bare commands and `help` show usage plus current status; actions require explicit arguments:
 
 ```text
 !help                         (all commands, with status)
 !git <args>                   (run Git in Pi's working directory; unrestricted)
+!$ <command> / !shell <command> (run a shell command in Pi's working directory; unrestricted)
 !token / !tokens              (help + footer-style stats)
 !token status                 (alias: !tokens status)
 !skill / !skill help          (usage; does not invoke a skill)
@@ -57,7 +57,9 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 !close this                  (disconnect and close this tmux window)
 ```
 
-`!git` invokes the Git executable directly with shell-style quoted arguments, without a shell or model turn. Git aliases and hooks still run normally. Bare `!git` shows usage. Output (up to 64 KB), errors, and the exit status are posted to the thread; commands time out after two minutes. Anyone who can reply in the session thread can run unrestricted Git commands with Pi's OS permissions. Interactive prompts and pagers are disabled.
+`!git` invokes the Git executable directly with shell-style quoted arguments, without a shell or model turn. Git aliases and hooks still run normally. Bare `!git` shows usage. Output (up to 64 KB), errors, and the exit status are posted to the thread; commands time out after two minutes. Interactive prompts and pagers are disabled.
+
+`!$` and `!shell` are aliases that execute the rest of the message as shell code, without a model turn. They use Pi's configured `shellPath` (Bash by default, or Zsh if configured), `shellCommandPrefix`, and working directory. Bare aliases show usage. Output is capped at 64 KB and execution times out after two minutes. Anyone who can reply in the session thread can execute arbitrary commands with Pi's OS permissions; do not enable remote mode in an untrusted thread.
 
 Skill names must match a loaded skill exactly. An unknown name returns a hint rather than starting a model turn; skill invocations queue as follow-ups while Pi is busy. `help`, `list`, `search`, and `filter` are reserved subcommands.
 
