@@ -5,6 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
 import { handleModelCommand } from "./model-commands.js";
 import { dispatchRemoteCommand, type CommandDefinition } from "./command-router.js";
+import { handleAgentCommand, STOP_USAGE, QUEUE_USAGE, STEER_USAGE } from "./agent-commands.js";
 import { handleSkillCommand, SKILL_USAGE } from "./skill-commands.js";
 import { handleGitCommand, GIT_USAGE } from "./git-commands.js";
 import { handleShellCommand, SHELL_USAGE } from "./shell-commands.js";
@@ -558,6 +559,26 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		};
 		return [
 			{
+				name: "help", aliases: ["list", "ls"],
+				usage: ["!help / !list / !ls — list all commands"],
+				actions: {}, // Catalog aliases are handled by the generic router.
+			},
+			{
+				name: "stop", aliases: ["abort"],
+				usage: STOP_USAGE,
+				actions: {}, // Acts on a bare command; handled before the generic router.
+			},
+			{
+				name: "queue",
+				usage: QUEUE_USAGE,
+				actions: {}, // Preserve the prompt; handled before the generic router.
+			},
+			{
+				name: "steer",
+				usage: STEER_USAGE,
+				actions: {}, // Preserve the prompt; handled before the generic router.
+			},
+			{
 				name: "git",
 				usage: GIT_USAGE,
 				actions: {}, // Git accepts arbitrary arguments; handled before the generic router.
@@ -703,6 +724,16 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	}
 
 	async function handleRemoteCommand(message: string, ctx: ExtensionContext): Promise<boolean> {
+		const agentResult = handleAgentCommand(message, {
+			isIdle: () => ctx.isIdle(),
+			hasPendingMessages: () => ctx.hasPendingMessages(),
+			abort: () => ctx.abort(),
+			sendUserMessage: (prompt, options) => pi.sendUserMessage(prompt, options),
+		});
+		if (agentResult.handled) {
+			if (agentResult.response) await postReply(ctx, agentResult.response);
+			return true;
+		}
 		let skillResult: ReturnType<typeof handleSkillCommand> = { handled: false };
 		if (/^!skill(?=\s|$)/.test(message.trimStart())) {
 			skillResult = handleSkillCommand(message, pi.getCommands(), (prompt) => {

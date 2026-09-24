@@ -17,7 +17,7 @@ export async function dispatchRemoteCommand(
 	if (parts.length === 0 || !parts[0].startsWith("!")) return { handled: false };
 
 	const commandName = parts[0].slice(1);
-	if (commandName === "help") {
+	if (commandName === "help" || commandName === "list" || commandName === "ls") {
 		const sections = await Promise.all(definitions.map(async (definition) => {
 			const status = await definition.status?.();
 			return [definition.name, ...definition.usage.map((line) => `  ${line}`), ...(status ? [`  ${status}`] : [])].join("\n");

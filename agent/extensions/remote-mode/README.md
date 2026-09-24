@@ -28,10 +28,13 @@ After the next user message, remote mode generates a short title in the backgrou
 
 Users can ask Pi naturally to rename the remote session, mark it done (`✅`), or put it back in progress (`💬` when connected, `❌` when disconnected). A manual title wins over pending background generation. The built-in `/name` command also updates the Mattermost title. Done is work status independent of connectivity: ✅ remains when remote mode is off; an unfinished disconnected session shows ❌.
 
-Mattermost replies beginning with a recognized `!` command are handled directly, without a main-model turn. Other replies (including unknown `!` commands) remain ordinary prompts. Bare commands and `help` show usage plus current status; actions require explicit arguments:
+Mattermost replies beginning with a recognized `!` command are handled directly, without a main-model turn. Other replies (including unknown `!` commands) remain ordinary prompts. Most bare commands show usage plus current status; `!stop`, `!abort`, `!help`, `!list`, and `!ls` act immediately:
 
 ```text
-!help                         (all commands, with status)
+!help / !list / !ls           (all commands, with status)
+!stop / !abort                (abort current work and clear queued messages)
+!queue <prompt>               (send after current work finishes)
+!steer <prompt>               (steer current work as soon as possible)
 !git <args>                   (run Git in Pi's working directory; unrestricted)
 !$ <command> / !shell <command> (run a shell command in Pi's working directory; unrestricted)
 !token / !tokens              (help + footer-style stats)
@@ -68,4 +71,4 @@ Bare `!reload`, `!new`, and `!close` show help and status instead of acting. `!n
 `!remote update` can replace even a manually chosen title; if generation fails, it refreshes the card with the existing title and status. Remote reload preserves discuss mode, as does terminal reload.
 
 The enabled state, root post ID, title, and status are stored for that Pi session, so reloads and tree navigation keep using the same thread while forks get their own.
-Mattermost replies are sent to Pi immediately when idle or as follow-ups when busy. While remote mode is enabled, work started from either the terminal or Mattermost creates one activity post. Each bracketed update is appended on a new line by editing that same post, for example `[thinking…]`, `[reading src/index.ts]`, and `[responding…]`. It finishes with `[completed]`, followed by the final assistant text as a separate thread reply.
+Mattermost replies are sent to Pi immediately when idle or as follow-ups when busy. `!queue` explicitly requests a follow-up, and `!steer` interrupts at the next steering boundary; either sends normally when idle. Both require a non-empty prompt. `!stop` and `!abort` match Escape in Pi: they abort current work and clear pending steering and follow-up messages (restoring them to the terminal editor as drafts). While remote mode is enabled, work started from either the terminal or Mattermost creates one activity post. Each bracketed update is appended on a new line by editing that same post, for example `[thinking…]`, `[reading src/index.ts]`, and `[responding…]`. It finishes with `[completed]`, followed by the final assistant text as a separate thread reply.
