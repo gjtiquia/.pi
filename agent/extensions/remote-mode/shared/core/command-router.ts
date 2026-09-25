@@ -1,6 +1,8 @@
 export interface CommandDefinition {
 	name: string;
 	aliases?: string[];
+	/** Whether this command needs an existing Pi conversation. */
+	sessionRequired?: boolean;
 	usage: string[];
 	status?: () => string | Promise<string>;
 	actions: Record<string, {

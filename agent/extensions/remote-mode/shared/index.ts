@@ -11,20 +11,29 @@ export type { CommandHost, ModelHost, ModelRef, Effort, TokenEntry, TokenUsage, 
 export type { CommandDefinition } from "./core/command-router.js";
 export interface CommandResult { handled: boolean; response?: string }
 
+/** Classify from the same catalog used to dispatch, so hosts need no command-name list. */
+export function classifySharedCommand(input: string): "standalone" | "session" | undefined {
+ const name = /^!(\S+)/.exec(input.trimStart())?.[1];
+ if (!name) return;
+ // Catalog construction only captures the host; it never invokes a capability.
+ const definition = registerSharedCommands({} as CommandHost).find(item => item.name === name || item.aliases?.includes(name));
+ return definition ? definition.sessionRequired ? "session" : "standalone" : undefined;
+}
+
 /** Compose the shared catalog with host-local commands. No registration side effects. */
 export function registerSharedCommands(host: CommandHost, local: CommandDefinition[] = []): CommandDefinition[] {
  const model = (input: string) => handleModelCommand(input, host.model);
  const tokens = () => tokenStatus(host.tokens());
  return [
   { name: "help", aliases: ["list", "ls"], usage: ["!help / !list / !ls — list all commands"], actions: {} },
-  { name: "stop", aliases: ["abort"], usage: STOP_USAGE, actions: {} },
-  { name: "queue", usage: QUEUE_USAGE, actions: {} },
-  { name: "steer", usage: STEER_USAGE, actions: {} },
+  { name: "stop", aliases: ["abort"], sessionRequired: true, usage: STOP_USAGE, actions: {} },
+  { name: "queue", sessionRequired: true, usage: QUEUE_USAGE, actions: {} },
+  { name: "steer", sessionRequired: true, usage: STEER_USAGE, actions: {} },
   { name: "git", usage: GIT_USAGE, actions: {} },
   { name: "shell", aliases: ["$"], usage: SHELL_USAGE, actions: {} },
-  { name: "skill", usage: SKILL_USAGE, actions: {} },
-  { name: "token", aliases: ["tokens"], usage: ["!token / !tokens — help + stats", "!token status / !tokens status — stats"], status: tokens, actions: { status: { args: "none", run: tokens } } },
-  { name: "model", usage: ["!model — help + status", "!model status", "!model list — all providers", "!model set model <model> — current provider", "!model set model <provider> <model>", "!model set effort <off|minimal|low|medium|high|xhigh|max>"], status: () => model("status"), actions: {
+  { name: "skill", sessionRequired: true, usage: SKILL_USAGE, actions: {} },
+  { name: "token", aliases: ["tokens"], sessionRequired: true, usage: ["!token / !tokens — help + stats", "!token status / !tokens status — stats"], status: tokens, actions: { status: { args: "none", run: tokens } } },
+  { name: "model", sessionRequired: true, usage: ["!model — help + status", "!model status", "!model list — all providers", "!model set model <model> — current provider", "!model set model <provider> <model>", "!model set effort <off|minimal|low|medium|high|xhigh|max>"], status: () => model("status"), actions: {
    status: { args: "none", run: () => model("status") },
    list: { args: "none", run: () => model("list") },
    "set model": { args: "required", run: (args) => model(`set model ${args}`) },

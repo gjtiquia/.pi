@@ -19,7 +19,7 @@ createCommandDispatcher(host: CommandHost, local?: CommandDefinition[]):
 registerSharedCommands(host: CommandHost, local?: CommandDefinition[]): CommandDefinition[]
 ```
 
-Use `createCommandDispatcher` for **all** inbound commands; it preserves raw shell/skill/queue/steer payloads before generic action routing. `registerSharedCommands` composes catalog definitions only, for inspection/help integrations; it is not a replacement dispatcher. Local names/aliases must not collide with shared names. Shared catalog entries precede local entries. A handled result may have no response; only `{ handled: false }` should fall through to the host's ordinary prompt path. Transport posting/chunking and thrown-error reporting belong to the caller.
+Use `createCommandDispatcher` for **all** inbound commands; it preserves raw shell/skill/queue/steer payloads before generic action routing. `classifySharedCommand(input)` derives standalone versus session-dependent commands from that same catalog; mark new hosted definitions `sessionRequired: true` so downstream does not need a separate name list. `registerSharedCommands` composes catalog definitions only, for inspection/help integrations; it is not a replacement dispatcher. Local names/aliases must not collide with shared names. Shared catalog entries precede local entries. A handled result may have no response; only `{ handled: false }` should fall through to the host's ordinary prompt path. Transport posting/chunking and thrown-error reporting belong to the caller.
 
 Type exports: `CommandHost`, `CommandResult`, `CommandDefinition`, `ModelHost`, `ModelRef`, `Effort`, `TokenEntry`, `TokenUsage`, `TokenSnapshot`. The exact structural contract is in `shared/host.ts`:
 

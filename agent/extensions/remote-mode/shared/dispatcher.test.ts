@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createCommandDispatcher, type CommandHost } from "./index.js";
+import { classifySharedCommand, createCommandDispatcher, type CommandHost } from "./index.js";
 
 function fixture() {
  const sent: unknown[] = [];
@@ -19,6 +19,14 @@ function fixture() {
  };
  return { host, sent, stopped: () => stopped };
 }
+
+test("shared catalog identifies standalone and session commands without host-specific routing lists", () => {
+ assert.equal(classifySharedCommand("!help"), "standalone");
+ assert.equal(classifySharedCommand("!$ pwd"), "standalone");
+ assert.equal(classifySharedCommand("!skill list"), "session");
+ assert.equal(classifySharedCommand("!stop"), "session");
+ assert.equal(classifySharedCommand("!unknown"), undefined);
+});
 
 test("shared dispatcher owns routing, catalog composition and unknown fallback", async () => {
  const { host } = fixture();
