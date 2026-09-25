@@ -20,8 +20,9 @@ curl -fsSL https://pi.dev/install.sh | sh
 npm install -g agent-browser
 agent-browser install
 
-# install the local notify extension dependency
+# install local extension dependencies
 npm ci --prefix ~/.pi/agent/extensions/notify
+npm ci --prefix ~/.pi/agent/extensions/remote-mode
 
 # start pi
 pi
@@ -73,6 +74,7 @@ restart pi or run `/reload`. The `list_excalidraw_scenes` tool lists or searches
 pi --version
 pi list
 npm ls --prefix ~/.pi/agent/extensions/notify --depth=0
+npm ls --prefix ~/.pi/agent/extensions/remote-mode --depth=0
 ```
 
 ## notes

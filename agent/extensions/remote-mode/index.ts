@@ -5,6 +5,7 @@ import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
 import { createCommandDispatcher, type CommandDefinition, type CommandHost } from "./shared/index.js";
 import { closeCurrentTmuxWindow, launchRemoteTmuxWindow } from "./tmux-windows.js";
+import { readMattermostLink, readMattermostAttachment } from "./mattermost-reader.js";
 
 const STATE_TYPE = "remote-mode-thread";
 const MAX_REPLY_CHARS = 14_000;
@@ -902,6 +903,34 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			}
 			if (action === "on" || (!action && !enabled)) enable(ctx);
 			else await disable(ctx);
+		},
+	});
+
+	pi.registerTool({
+		name: "read_mattermost_link",
+		label: "Read Mattermost thread",
+		description: "Read a Mattermost post permalink and its complete thread using the configured bot account. Lists file IDs for attachments; works even when remote mode is off.",
+		promptGuidelines: ["Use read_mattermost_link when the user provides a Mattermost post permalink and asks about its contents."],
+		parameters: Type.Object({ link: Type.String({ description: "Full Mattermost post permalink" }) }),
+		async execute(_toolCallId, params, signal) {
+			if (envError) throw envError;
+			if (!config) throw new Error("Mattermost bot credentials are not configured");
+			return readMattermostLink(config, params.link, signal);
+		},
+	});
+
+	pi.registerTool({
+		name: "read_mattermost_attachment",
+		label: "Read Mattermost attachment",
+		description: "Read a text, PDF, or image attachment on a Mattermost post using the bot account. Use a file ID returned by read_mattermost_link.",
+		parameters: Type.Object({
+			link: Type.String({ description: "Full permalink to the post containing the attachment" }),
+			fileId: Type.String({ description: "Attachment file ID listed by read_mattermost_link" }),
+		}),
+		async execute(_toolCallId, params, signal) {
+			if (envError) throw envError;
+			if (!config) throw new Error("Mattermost bot credentials are not configured");
+			return readMattermostAttachment(config, params.link, params.fileId, signal);
 		},
 	});
 
