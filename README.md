@@ -22,7 +22,7 @@ agent-browser install
 
 # install local extension dependencies
 npm ci --prefix ~/.pi/agent/extensions/notify
-npm ci --prefix ~/.pi/agent/extensions/remote-mode
+npm ci --prefix ~/.pi/agent/extensions/mattermost-read
 
 # start pi
 pi
@@ -34,12 +34,11 @@ inside pi, run `/login` and authenticate each provider needed on the machine. cr
 
 packages listed in `agent/settings.json` are managed by pi and install automatically.
 
-## Mattermost remote mode
+## Mattermost
 
 ```bash
-# create the local environment file
-cp ~/.pi/agent/extensions/remote-mode/.env.example \
-  ~/.pi/agent/extensions/remote-mode/.env
+# shared credentials for remote mode and the read-only Mattermost tools
+cp ~/.pi/agent/mattermost/.env.example ~/.pi/agent/mattermost/.env
 ```
 
 fill in the environment file:
@@ -50,7 +49,7 @@ MATTERMOST_BOT_TOKEN=...
 MATTERMOST_CHANNEL_ID=...
 ```
 
-the bot must be able to read and post in the configured channel. restart pi or run `/reload`, then use `/remote status` to inspect remote mode, `/remote ping` to test the connection, and `/remote on` to enable it.
+for remote mode, the bot must be able to read and post in the configured channel. `MATTERMOST_CHANNEL_ID` is needed only for remote mode; the independent `read_mattermost_link` and `read_mattermost_attachment` tools need only the URL, token, and read access to the linked posts. They work when remote mode is off. restart pi or run `/reload`, then use `/remote status` to inspect remote mode, `/remote ping` to test the connection, and `/remote on` to enable it.
 
 ## Excalidraw+ reader
 
@@ -74,7 +73,7 @@ restart pi or run `/reload`. The `list_excalidraw_scenes` tool lists or searches
 pi --version
 pi list
 npm ls --prefix ~/.pi/agent/extensions/notify --depth=0
-npm ls --prefix ~/.pi/agent/extensions/remote-mode --depth=0
+npm ls --prefix ~/.pi/agent/extensions/mattermost-read --depth=0
 ```
 
 ## notes
@@ -83,4 +82,4 @@ npm ls --prefix ~/.pi/agent/extensions/remote-mode --depth=0
 - `/agent/sessions/` is ignored because it grows quickly and does not need to be backed up yet
 - `/agent/models-store.json` is ignored because it regenerates
 - `/agent/auth.json` is ignored because it contains credentials
-- extension `.env` files are ignored because they contain secrets
+- extension and shared Mattermost `.env` files are ignored because they contain secrets

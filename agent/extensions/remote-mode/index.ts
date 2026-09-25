@@ -1,11 +1,10 @@
 import { StringEnum } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { fileURLToPath } from "node:url";
-import { basename, dirname, join } from "node:path";
+import { basename } from "node:path";
 import { Type } from "typebox";
 import { createCommandDispatcher, type CommandDefinition, type CommandHost } from "./shared/index.js";
 import { closeCurrentTmuxWindow, launchRemoteTmuxWindow } from "./tmux-windows.js";
-import { readMattermostLink, readMattermostAttachment } from "./mattermost-reader.js";
+import { loadMattermostEnv, readMattermostConfig } from "../../mattermost/config.js";
 
 const STATE_TYPE = "remote-mode-thread";
 const MAX_REPLY_CHARS = 14_000;
@@ -80,23 +79,6 @@ interface ActivityRun {
 	updates: Promise<void>;
 }
 
-function loadLocalEnv(): Error | undefined {
-	try {
-		process.loadEnvFile(join(dirname(fileURLToPath(import.meta.url)), ".env"));
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code !== "ENOENT") return error as Error;
-	}
-}
-
-function readConfig(): Config | undefined {
-	const url = process.env.MATTERMOST_URL?.replace(/\/+$/, "");
-	const token = process.env.MATTERMOST_BOT_TOKEN;
-	const channelId = process.env.MATTERMOST_CHANNEL_ID;
-
-	if (!url || !token || !channelId) return;
-	return { url, token, channelId };
-}
-
 function errorMessage(error: unknown): string {
 	return error instanceof Error ? error.message : String(error);
 }
@@ -142,8 +124,11 @@ function toolActivity(toolName: string, args: Record<string, unknown> | undefine
 }
 
 export default function remoteModeExtension(pi: ExtensionAPI): void {
-	const envError = loadLocalEnv();
-	const config = readConfig();
+	const envError = loadMattermostEnv();
+	const credentials = readMattermostConfig();
+	const config: Config | undefined = credentials?.channelId
+		? { ...credentials, channelId: credentials.channelId }
+		: undefined;
 
 	let enabled = false;
 	let activationId = 0;
@@ -784,7 +769,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			return;
 		}
 		if (envError) {
-			ctx.ui.notify(`Could not load remote-mode/.env: ${envError.message}`, "error");
+			ctx.ui.notify(`Could not load agent/mattermost/.env: ${envError.message}`, "error");
 			return;
 		}
 		if (!config) {
@@ -875,7 +860,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			}
 			if (action === "ping") {
 				if (envError) {
-					ctx.ui.notify(`Could not load remote-mode/.env: ${envError.message}`, "error");
+					ctx.ui.notify(`Could not load agent/mattermost/.env: ${envError.message}`, "error");
 					return;
 				}
 				if (!config) {
@@ -903,34 +888,6 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			}
 			if (action === "on" || (!action && !enabled)) enable(ctx);
 			else await disable(ctx);
-		},
-	});
-
-	pi.registerTool({
-		name: "read_mattermost_link",
-		label: "Read Mattermost thread",
-		description: "Read a Mattermost post permalink and its complete thread using the configured bot account. Lists file IDs for attachments; works even when remote mode is off.",
-		promptGuidelines: ["Use read_mattermost_link when the user provides a Mattermost post permalink and asks about its contents."],
-		parameters: Type.Object({ link: Type.String({ description: "Full Mattermost post permalink" }) }),
-		async execute(_toolCallId, params, signal) {
-			if (envError) throw envError;
-			if (!config) throw new Error("Mattermost bot credentials are not configured");
-			return readMattermostLink(config, params.link, signal);
-		},
-	});
-
-	pi.registerTool({
-		name: "read_mattermost_attachment",
-		label: "Read Mattermost attachment",
-		description: "Read a text, PDF, or image attachment on a Mattermost post using the bot account. Use a file ID returned by read_mattermost_link.",
-		parameters: Type.Object({
-			link: Type.String({ description: "Full permalink to the post containing the attachment" }),
-			fileId: Type.String({ description: "Attachment file ID listed by read_mattermost_link" }),
-		}),
-		async execute(_toolCallId, params, signal) {
-			if (envError) throw envError;
-			if (!config) throw new Error("Mattermost bot credentials are not configured");
-			return readMattermostAttachment(config, params.link, params.fileId, signal);
 		},
 	});
 

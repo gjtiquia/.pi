@@ -8,5 +8,6 @@
 /agent/web-search-cache
 /agent/extensions/**/node_modules/
 /agent/extensions/**/.env
+/agent/mattermost/.env
 agent/install
 agent/bin

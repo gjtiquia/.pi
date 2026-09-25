@@ -45,18 +45,11 @@ Dispatcher tests exercise composition/fallback, session delivery, skills, model 
 
 ## Configuration
 
-Copy `.env.example` to `.env` in this directory and fill in all three values. The extension loads that file with Node's `process.loadEnvFile`; a real `.env` is intentionally not included.
+Copy `agent/mattermost/.env.example` to `agent/mattermost/.env` and fill in all three values. Remote mode and the separate Mattermost reader extension load the same ignored credential file.
 
 The bot account must be able to read and post in the configured channel. Any non-bot user who can reply in the session's thread can send messages into Pi.
 
-### Read Mattermost links and attachments
-
-This extension also registers two read-only agent tools, available even when `/remote off`:
-
-- `read_mattermost_link({ link })` accepts a post permalink on `MATTERMOST_URL`, fetches the linked post and its full thread, and lists each attachment's file ID. It works in any channel the bot can read, not only `MATTERMOST_CHANNEL_ID`. Thread output is capped at 500 posts / 150,000 characters and explicitly marked if truncated.
-- `read_mattermost_attachment({ link, fileId })` reads a file from the **post containing it** (the first tool lists each post's permalink). Text files are decoded as UTF-8 (100,000 character output limit); PDFs are extracted in memory via the locally installed `pdfjs-dist` package (10 pages / 50,000 characters by default); PNG, JPEG, GIF, and WebP are returned as image content. Unsupported or binary files are rejected. Downloads are capped at 20 MiB, images at 10 MiB. No files are saved or posts created.
-
-Install the PDF dependency after checking out this directory with `npm ci --prefix agent/extensions/remote-mode`. The tools require bot read access to the linked channel and its files. They never send the bot token on HTTP redirects.
+The independent read-only tools live in `agent/extensions/mattermost-read/`; see its README for supported attachments and limits. They need only the URL and bot token, and remain available when `/remote off`.
 
 ## Usage
 
