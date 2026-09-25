@@ -57,5 +57,5 @@ export async function dispatchRemoteCommand(
 		return usageAndStatus();
 	}
 	const response = await operation.run(actionArgs);
-	return response === undefined ? { handled: true } : { handled: true, response };
+	return typeof response === "string" ? { handled: true, response } : { handled: true };
 }

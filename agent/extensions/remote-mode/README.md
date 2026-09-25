@@ -2,6 +2,46 @@
 
 A global Pi extension that relays one Mattermost thread to the current Pi session.
 
+## Shared commands and downstream copy
+
+`shared/` is the canonical, copyable command implementation. Copy the **entire directory** (including `package.json` and tests) into the downstream `pi-personal` host; do not copy remote `index.ts` or implement a second parser. Internal imports never reach outside `shared/`.
+
+- `core/`: generic routing, usage, aliases, and catalog rendering.
+- `standalone/`: Git and shell execution, using the adapter's cwd and project trust. These need no live session. Shell intentionally depends on `@earendil-works/pi-coding-agent` for Pi shell settings/resolution; Git uses Node only.
+- `hosted/`: skill, model, agent delivery/abort, and token logic, operating on a structural session adapter (no ExtensionAPI dependency).
+- Remote `index.ts`: builds the adapter, posts replies, handles unknown-command prompt fallback, and owns discuss/remote/reload/new/close, tmux, and thread cards.
+
+### Public interface (`shared/index.ts`)
+
+```ts
+createCommandDispatcher(host: CommandHost, local?: CommandDefinition[]):
+  (input: string) => Promise<CommandResult>
+registerSharedCommands(host: CommandHost, local?: CommandDefinition[]): CommandDefinition[]
+```
+
+Use `createCommandDispatcher` for **all** inbound commands; it preserves raw shell/skill/queue/steer payloads before generic action routing. `registerSharedCommands` composes catalog definitions only, for inspection/help integrations; it is not a replacement dispatcher. Local names/aliases must not collide with shared names. Shared catalog entries precede local entries. A handled result may have no response; only `{ handled: false }` should fall through to the host's ordinary prompt path. Transport posting/chunking and thrown-error reporting belong to the caller.
+
+Type exports: `CommandHost`, `CommandResult`, `CommandDefinition`, `ModelHost`, `ModelRef`, `Effort`, `TokenEntry`, `TokenUsage`, `TokenSnapshot`. The exact structural contract is in `shared/host.ts`:
+
+- `cwd: string`, `projectTrusted: boolean` are host-authorized execution context, not user input.
+- `isIdle()`, `hasPendingMessages()`, `abort()` (abort AND clear pending messages).
+- `sendUserMessage(prompt, options?)`, with optional `deliverAs: "steer" | "followUp"` and `expandPromptTemplates: boolean` fields. Shared logic decides idle/busy delivery and skill expansion.
+- `getSkills()` returns `{ name, description?, source }[]`; only `source === "skill"` is included.
+- `model.current()` returns `{ provider, id } | undefined`; `list()` returns that catalog; `set(ref): Promise<boolean>` returns false for missing auth; `getEffort(): string`; `setEffort(Effort): void`.
+- `tokens()` returns `{ entries, percent?, contextWindow }`. Entries are structural Pi session entries (`type`, optional `usage`, optional `message: { role, usage? }`). Usage is `{ input, output, cacheRead, cacheWrite, cost: { total } }`. The host supplies the effective context-window fallback; shared code aggregates and formats statistics.
+
+Bind the adapter to a valid session context; rebuild it after session replacement. Methods should read current session state rather than cache it. No Mattermost, environment credentials, installation paths, or gateway dependencies occur in the shared directory.
+
+### Tests
+
+With `tsx`, Node types, and Pi's runtime dependencies resolvable in `node_modules`:
+
+```sh
+node --import tsx --test $(find agent/extensions/remote-mode/shared -name '*.test.ts')
+```
+
+Dispatcher tests exercise composition/fallback, session delivery, skills, model validation, token aggregation, cwd, and trusted/untrusted shell settings. Lower-level parser/execution tests live beside their modules. `shared/package.json` declares ESM so these tests also run after a standalone directory copy.
+
 ## Configuration
 
 Copy `.env.example` to `.env` in this directory and fill in all three values. The extension loads that file with Node's `process.loadEnvFile`; a real `.env` is intentionally not included.

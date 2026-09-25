@@ -3,12 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
 import { Type } from "typebox";
-import { handleModelCommand } from "./model-commands.js";
-import { dispatchRemoteCommand, type CommandDefinition } from "./command-router.js";
-import { handleAgentCommand, STOP_USAGE, QUEUE_USAGE, STEER_USAGE } from "./agent-commands.js";
-import { handleSkillCommand, SKILL_USAGE } from "./skill-commands.js";
-import { handleGitCommand, GIT_USAGE } from "./git-commands.js";
-import { handleShellCommand, SHELL_USAGE } from "./shell-commands.js";
+import { createCommandDispatcher, type CommandDefinition, type CommandHost } from "./shared/index.js";
 import { closeCurrentTmuxWindow, launchRemoteTmuxWindow } from "./tmux-windows.js";
 
 const STATE_TYPE = "remote-mode-thread";
@@ -508,47 +503,6 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		});
 	}
 
-	function formatTokens(count: number): string {
-		if (count < 1000) return String(count);
-		if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-		if (count < 1000000) return `${Math.round(count / 1000)}k`;
-		if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
-		return `${Math.round(count / 1000000)}M`;
-	}
-
-	function tokenStatus(ctx: ExtensionContext): string {
-		const totals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0 };
-		let latestCacheHitRate: number | undefined;
-		for (const entry of ctx.sessionManager.getEntries()) {
-			const usage = entry.type === "usage" ? entry.usage
-				: entry.type === "message" && entry.message.role === "assistant" ? entry.message.usage
-				: entry.type === "message" && entry.message.role === "toolResult" ? entry.message.usage
-				: (entry.type === "branch_summary" || entry.type === "compaction") ? entry.usage : undefined;
-			if (!usage) continue;
-			totals.input += usage.input;
-			totals.output += usage.output;
-			totals.cacheRead += usage.cacheRead;
-			totals.cacheWrite += usage.cacheWrite;
-			totals.cost += usage.cost.total;
-			if (entry.type === "message" && entry.message.role === "assistant") {
-				const prompt = usage.input + usage.cacheRead + usage.cacheWrite;
-				latestCacheHitRate = prompt > 0 ? usage.cacheRead / prompt * 100 : undefined;
-			}
-		}
-		const parts: string[] = [];
-		if (totals.input) parts.push(`↑${formatTokens(totals.input)}`);
-		if (totals.output) parts.push(`↓${formatTokens(totals.output)}`);
-		if (totals.cacheRead) parts.push(`R${formatTokens(totals.cacheRead)}`);
-		if (totals.cacheWrite) parts.push(`W${formatTokens(totals.cacheWrite)}`);
-		if ((totals.cacheRead || totals.cacheWrite) && latestCacheHitRate !== undefined) {
-			parts.push(`CH${latestCacheHitRate.toFixed(1)}%`);
-		}
-		if (totals.cost) parts.push(`$${totals.cost.toFixed(3)}`);
-		const usage = ctx.getContextUsage();
-		parts.push(`${usage?.percent == null ? "?" : usage.percent.toFixed(1) + "%"}/${formatTokens(usage?.contextWindow ?? ctx.model?.contextWindow ?? 0)}`);
-		return parts.join(" ");
-	}
-
 	function commandDefinitions(ctx: ExtensionContext): CommandDefinition[] {
 		const discussStatus = () => `Discuss mode: ${process.env.PI_DISCUSS_MODE === "1" ? "on" : "off"}`;
 		const setDiscuss = (on: boolean) => {
@@ -559,47 +513,6 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		};
 		return [
 			{
-				name: "help", aliases: ["list", "ls"],
-				usage: ["!help / !list / !ls — list all commands"],
-				actions: {}, // Catalog aliases are handled by the generic router.
-			},
-			{
-				name: "stop", aliases: ["abort"],
-				usage: STOP_USAGE,
-				actions: {}, // Acts on a bare command; handled before the generic router.
-			},
-			{
-				name: "queue",
-				usage: QUEUE_USAGE,
-				actions: {}, // Preserve the prompt; handled before the generic router.
-			},
-			{
-				name: "steer",
-				usage: STEER_USAGE,
-				actions: {}, // Preserve the prompt; handled before the generic router.
-			},
-			{
-				name: "git",
-				usage: GIT_USAGE,
-				actions: {}, // Git accepts arbitrary arguments; handled before the generic router.
-			},
-			{
-				name: "shell", aliases: ["$"],
-				usage: SHELL_USAGE,
-				actions: {}, // Preserve the raw shell command; handled before the generic router.
-			},
-			{
-				name: "skill",
-				usage: SKILL_USAGE,
-				actions: {}, // Skill prompts need their original whitespace; handled before the generic router.
-			},
-			{
-				name: "token", aliases: ["tokens"],
-				usage: ["!token / !tokens — help + stats", "!token status / !tokens status — stats"],
-				status: () => tokenStatus(ctx),
-				actions: { status: { args: "none", run: () => tokenStatus(ctx) } },
-			},
-			{
 				name: "discuss",
 				usage: ["!discuss — help + status", "!discuss status", "!discuss on", "!discuss off"],
 				status: discussStatus,
@@ -607,17 +520,6 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 				status: { args: "none", run: discussStatus },
 				on: { args: "none", run: () => setDiscuss(true) },
 				off: { args: "none", run: () => setDiscuss(false) },
-				},
-			},
-			{
-				name: "model",
-				usage: ["!model — help + status", "!model status", "!model list — all providers", "!model set model <model> — current provider", "!model set model <provider> <model>", "!model set effort <off|minimal|low|medium|high|xhigh|max>"],
-				status: () => handleModelCommand("status", pi, ctx),
-				actions: {
-					status: { args: "none", run: () => handleModelCommand("status", pi, ctx) },
-					list: { args: "none", run: () => handleModelCommand("list", pi, ctx) },
-					"set model": { args: "required", run: (args) => handleModelCommand(`set model ${args}`, pi, ctx) },
-					"set effort": { args: "required", run: (args) => handleModelCommand(`set effort ${args}`, pi, ctx) },
 				},
 			},
 			{
@@ -724,32 +626,32 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	}
 
 	async function handleRemoteCommand(message: string, ctx: ExtensionContext): Promise<boolean> {
-		const agentResult = handleAgentCommand(message, {
+		const host: CommandHost = {
+			cwd: ctx.cwd,
+			projectTrusted: ctx.isProjectTrusted(),
 			isIdle: () => ctx.isIdle(),
 			hasPendingMessages: () => ctx.hasPendingMessages(),
 			abort: () => ctx.abort(),
 			sendUserMessage: (prompt, options) => pi.sendUserMessage(prompt, options),
-		});
-		if (agentResult.handled) {
-			if (agentResult.response) await postReply(ctx, agentResult.response);
-			return true;
-		}
-		let skillResult: ReturnType<typeof handleSkillCommand> = { handled: false };
-		if (/^!skill(?=\s|$)/.test(message.trimStart())) {
-			skillResult = handleSkillCommand(message, pi.getCommands(), (prompt) => {
-				pi.sendUserMessage(prompt, {
-					...(ctx.isIdle() ? {} : { deliverAs: "followUp" as const }),
-					expandPromptTemplates: true,
-				});
-			});
-		}
-		const gitResult = /^!git(?=\s|$)/.test(message.trimStart())
-			? { handled: true, response: await handleGitCommand(message, ctx.cwd) }
-			: { handled: false };
-		const shellResult = /^!(?:\$|shell)(?=\s|$)/.test(message.trimStart())
-			? { handled: true, response: await handleShellCommand(message, ctx.cwd, ctx.isProjectTrusted()) }
-			: { handled: false };
-		const result = skillResult.handled ? skillResult : gitResult.handled ? gitResult : shellResult.handled ? shellResult : await dispatchRemoteCommand(message, commandDefinitions(ctx));
+			getSkills: () => pi.getCommands(),
+			model: {
+				current: () => ctx.model,
+				list: () => ctx.modelRegistry.getAll(),
+				set: async ({ provider, id }) => {
+					const model = ctx.modelRegistry.find(provider, id);
+					if (!model) throw new Error(`Model not found: ${provider}/${id}`);
+					return pi.setModel(model);
+				},
+				getEffort: () => pi.getThinkingLevel(),
+				setEffort: (effort) => pi.setThinkingLevel(effort),
+			},
+			tokens: () => {
+				const usage = ctx.getContextUsage();
+				return { entries: ctx.sessionManager.getEntries(), percent: usage?.percent,
+					contextWindow: usage?.contextWindow ?? ctx.model?.contextWindow ?? 0 };
+			},
+		};
+		const result = await createCommandDispatcher(host, commandDefinitions(ctx))(message);
 		if (!result.handled) return false;
 		if (result.response) await postReply(ctx, result.response);
 		return true;

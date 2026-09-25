@@ -1,21 +1,9 @@
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { registerHooks } from "node:module";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { fileURLToPath, pathToFileURL } from "node:url";
-
-// Pi resolves its own package for extensions at runtime; plain node --test does not.
-const agentDir = fileURLToPath(new URL("../../", import.meta.url));
-const version = (await readFile(join(agentDir, "install/current-version"), "utf8")).trim();
-const installedPackage = pathToFileURL(join(agentDir, "install/releases", version, "node_modules/@earendil-works/pi-coding-agent/dist/index.js")).href;
-registerHooks({
-	resolve(specifier, context, nextResolve) {
-		return nextResolve(specifier === "@earendil-works/pi-coding-agent" ? installedPackage : specifier, context);
-	},
-});
-const { handleShellCommand } = await import("./shell-commands.ts");
+import { handleShellCommand } from "./shell-commands.ts";
 
 test("both aliases preserve shell syntax and execute in Pi's cwd", async () => {
 	const dir = await mkdtemp(join(tmpdir(), "remote-shell-"));
