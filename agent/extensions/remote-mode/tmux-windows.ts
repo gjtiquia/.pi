@@ -2,7 +2,13 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
-const START_COMMAND = "pi '/remote on' '/remote ping'";
+function shellQuote(value: string): string {
+	return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
+function startCommand(title?: string): string {
+	return `pi ${title ? `--name ${shellQuote(title)} ` : ""}'/remote on' '/remote ping'`;
+}
 
 /** Runs tmux with argv (never through a shell); the default inherits this process's environment. */
 export type TmuxRunner = (args: readonly string[]) => Promise<string>;
@@ -48,6 +54,7 @@ async function currentWindow(paneId: string, run: TmuxRunner): Promise<{ session
  */
 export async function launchRemoteTmuxWindow(
 	cwd: string,
+	title?: string,
 	{ run = runTmux, env = process.env }: TmuxWindowOptions = {},
 ): Promise<TmuxLaunchResult> {
 	const currentPaneId = paneFromEnv(env);
@@ -60,7 +67,7 @@ export async function launchRemoteTmuxWindow(
 		throw new Error("tmux did not return the new window and pane IDs; refusing to send input");
 	}
 	const [windowId, paneId] = fields;
-	await run(["send-keys", "-t", paneId, "-l", "--", START_COMMAND]);
+	await run(["send-keys", "-t", paneId, "-l", "--", startCommand(title)]);
 	await run(["send-keys", "-t", paneId, "Enter"]);
 	return { status: "created", sessionId, windowId, paneId };
 }

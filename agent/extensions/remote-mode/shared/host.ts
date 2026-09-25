@@ -30,6 +30,8 @@ export interface CommandHost {
  hasPendingMessages(): boolean;
  /** Abort current work AND clear pending messages. */
  abort(): void;
+ /** Compact the active Pi session; resolve on completion, reject on failure. Requires a live session. */
+ compact(): Promise<void>;
  sendUserMessage(prompt: string, options?: { deliverAs?: "steer" | "followUp"; expandPromptTemplates?: boolean }): void;
  getSkills(): { name: string; description?: string; source: string }[];
  model: ModelHost;

@@ -163,6 +163,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	let finalAssistantText: string | undefined;
 	let assistantActivationId: number | undefined;
 	let activityRun: ActivityRun | undefined;
+	let compacting = false;
 	const activityRuns = new Set<ActivityRun>();
 
 	function setStatus(ctx: ExtensionContext): void {
@@ -606,14 +607,14 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			},
 			{
 				name: "new",
-				usage: ["!new — help + session status", "!new session — separate remote-enabled Pi in a new tmux window"],
+				usage: ["!new — help + session status", "!new session [title] — separate remote-enabled Pi in a new tmux window, optionally named"],
 				status: () => `Session: ${ctx.sessionManager.getSessionId()}`,
-				actions: { session: { args: "none", run: async () => {
+				actions: { session: { args: "optional", run: async (value) => {
 					if (lifecycleSignal.__piRemoteLifecycle) return "A session operation is already in progress.";
 					const operation = { sessionId: ctx.sessionManager.getSessionId(), kind: "new" as const };
 					lifecycleSignal.__piRemoteLifecycle = operation;
 					try {
-						const result = await launchRemoteTmuxWindow(ctx.cwd);
+						const result = await launchRemoteTmuxWindow(ctx.cwd, value ? oneLine(value, 100) : undefined);
 						return result.status === "not-tmux"
 							? "Not inside tmux; no new session was started."
 							: `Started Pi in tmux window ${result.windowId}. This session remains connected.`;
@@ -632,6 +633,18 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			isIdle: () => ctx.isIdle(),
 			hasPendingMessages: () => ctx.hasPendingMessages(),
 			abort: () => ctx.abort(),
+			compact: async () => {
+				if (compacting) throw new Error("Compaction is already in progress");
+				compacting = true;
+				try {
+					await new Promise<void>((resolve, reject) => ctx.compact({
+						onComplete: () => resolve(),
+						onError: reject,
+					}));
+				} finally {
+					compacting = false;
+				}
+			},
 			sendUserMessage: (prompt, options) => pi.sendUserMessage(prompt, options),
 			getSkills: () => pi.getCommands(),
 			model: {

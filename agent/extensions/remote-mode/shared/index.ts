@@ -29,6 +29,18 @@ export function registerSharedCommands(host: CommandHost, local: CommandDefiniti
   { name: "stop", aliases: ["abort"], sessionRequired: true, usage: STOP_USAGE, actions: {} },
   { name: "queue", sessionRequired: true, usage: QUEUE_USAGE, actions: {} },
   { name: "steer", sessionRequired: true, usage: STEER_USAGE, actions: {} },
+  { name: "compact", aliases: ["compress"], sessionRequired: true,
+   usage: ["!compact / !compress — usage", "!compact this / !compress this — compact this Pi session"],
+   actions: { this: { args: "none", run: async () => {
+    if (!host.isIdle() || host.hasPendingMessages()) return "Pi is busy; wait for it to finish before compacting.";
+    try {
+     await host.compact();
+     return "Compaction complete.";
+    } catch (error) {
+     return `Compaction failed: ${error instanceof Error ? error.message : String(error)}`;
+    }
+   } } },
+  },
   { name: "git", usage: GIT_USAGE, actions: {} },
   { name: "shell", aliases: ["$"], usage: SHELL_USAGE, actions: {} },
   { name: "skill", sessionRequired: true, usage: SKILL_USAGE, actions: {} },

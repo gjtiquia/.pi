@@ -12,6 +12,7 @@ function fixture() {
   cwd: process.cwd(), projectTrusted: false,
   isIdle: () => false, hasPendingMessages: () => true,
   abort: () => { stopped = true; },
+  compact: async () => {},
   sendUserMessage: (text, options) => { sent.push([text, options]); },
   getSkills: () => [{ name: "skill:review", source: "skill" }],
   model: { current: () => ({ provider: "test", id: "one" }), list: () => [{ provider: "test", id: "one" }], set: async () => true, getEffort: () => "low", setEffort: () => {} },
@@ -25,6 +26,8 @@ test("shared catalog identifies standalone and session commands without host-spe
  assert.equal(classifySharedCommand("!$ pwd"), "standalone");
  assert.equal(classifySharedCommand("!skill list"), "session");
  assert.equal(classifySharedCommand("!stop"), "session");
+ assert.equal(classifySharedCommand("!compact this"), "session");
+ assert.equal(classifySharedCommand("!compress this"), "session");
  assert.equal(classifySharedCommand("!unknown"), undefined);
 });
 
@@ -49,6 +52,26 @@ test("shared dispatcher preserves prompt text and session delivery semantics", a
  assert.equal((await dispatch("!abort extra")).response?.startsWith("Usage:"), true);
  assert.equal(f.stopped(), false);
  await dispatch("!abort"); assert.equal(f.stopped(), true);
+});
+
+test("compact aliases require this, an idle session, and report completion or failure", async () => {
+ const { host } = fixture();
+ let calls = 0;
+ host.compact = async () => { calls++; };
+ const dispatch = createCommandDispatcher(host);
+ assert.match((await dispatch("!compact")).response!, /!compact this/);
+ assert.match((await dispatch("!compress help")).response!, /!compress this/);
+ assert.match((await dispatch("!compact other")).response!, /Usage:/);
+ assert.match((await dispatch("!compact this extra")).response!, /Usage:/);
+ assert.match((await dispatch("!compact this")).response!, /busy/);
+ assert.equal(calls, 0);
+ host.isIdle = () => true;
+ assert.match((await dispatch("!compress this")).response!, /busy/);
+ host.hasPendingMessages = () => false;
+ assert.equal((await dispatch("!compress this")).response, "Compaction complete.");
+ assert.equal(calls, 1);
+ host.compact = async () => { throw new Error("Nothing to compact (session too small)"); };
+ assert.match((await dispatch("!compact this")).response!, /Compaction failed: Nothing to compact/);
 });
 
 test("standalone commands use host cwd and trusted project shell settings", async () => {

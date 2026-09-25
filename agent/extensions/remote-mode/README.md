@@ -8,7 +8,7 @@ A global Pi extension that relays one Mattermost thread to the current Pi sessio
 
 - `core/`: generic routing, usage, aliases, and catalog rendering.
 - `standalone/`: Git and shell execution, using the adapter's cwd and project trust. These need no live session. Shell intentionally depends on `@earendil-works/pi-coding-agent` for Pi shell settings/resolution; Git uses Node only.
-- `hosted/`: skill, model, agent delivery/abort, and token logic, operating on a structural session adapter (no ExtensionAPI dependency).
+- `hosted/`: skill, model, agent delivery/abort, and token logic, operating on a structural session adapter (no ExtensionAPI dependency). Compaction also requires the live session adapter; it is not a standalone shell command.
 - Remote `index.ts`: builds the adapter, posts replies, handles unknown-command prompt fallback, and owns discuss/remote/reload/new/close, tmux, and thread cards.
 
 ### Public interface (`shared/index.ts`)
@@ -25,6 +25,7 @@ Type exports: `CommandHost`, `CommandResult`, `CommandDefinition`, `ModelHost`, 
 
 - `cwd: string`, `projectTrusted: boolean` are host-authorized execution context, not user input.
 - `isIdle()`, `hasPendingMessages()`, `abort()` (abort AND clear pending messages).
+- `compact(): Promise<void>` compacts the active Pi session, resolving only when finished and rejecting on failure. Bind it to `ctx.compact({ onComplete, onError })`; it requires a live session and must not be implemented by launching a separate Pi process. Shared `!compact this` / `!compress this` refuses to start while work or queued messages remain, since Pi's manual compaction otherwise aborts active work.
 - `sendUserMessage(prompt, options?)`, with optional `deliverAs: "steer" | "followUp"` and `expandPromptTemplates: boolean` fields. Shared logic decides idle/busy delivery and skill expansion.
 - `getSkills()` returns `{ name, description?, source }[]`; only `source === "skill"` is included.
 - `model.current()` returns `{ provider, id } | undefined`; `list()` returns that catalog; `set(ref): Promise<boolean>` returns false for missing auth; `getEffort(): string`; `setEffort(Effort): void`.
@@ -73,6 +74,7 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 ```text
 !help / !list / !ls           (all commands, with status)
 !stop / !abort                (abort current work and clear queued messages)
+!compact this / !compress this (compact the active Pi session; idle only)
 !queue <prompt>               (send after current work finishes)
 !steer <prompt>               (steer current work as soon as possible)
 !git <args>                   (run Git in Pi's working directory; unrestricted)
@@ -96,7 +98,7 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 !model set model <provider> <model>
 !model set effort off|minimal|low|medium|high|xhigh|max
 !reload this                  (posts progress and result in the thread)
-!new session                 (parallel Pi in a new tmux window, old thread stays online)
+!new session [title]         (parallel Pi in a new tmux window, optionally named; old thread stays online)
 !close this                  (disconnect and close this tmux window)
 ```
 
@@ -106,7 +108,7 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 
 Skill names must match a loaded skill exactly. An unknown name returns a hint rather than starting a model turn; skill invocations queue as follow-ups while Pi is busy. `help`, `list`, `search`, and `filter` are reserved subcommands.
 
-Bare `!reload`, `!new`, and `!close` show help and status instead of acting. `!new session` starts a fresh Pi in a shell-backed tmux window (with `/remote on` and `/remote ping` as startup commands), leaving the current session and window untouched. Pi exiting does not close the new window. Outside tmux, `!new session` does nothing. `!close this` acknowledges the request, disconnects remote mode, and closes its current tmux window; outside tmux it disconnects but leaves Pi open.
+Bare `!compact` and `!compress` show usage instead of acting. They are session-dependent shared commands (`sessionRequired: true`), not standalone commands; completion or failure is posted after Pi finishes compaction. Bare `!reload`, `!new`, and `!close` show help and status instead of acting. `!new session` starts a fresh Pi in a shell-backed tmux window (with `/remote on` and `/remote ping` as startup commands), leaving the current session and window untouched. `!new session <title>` sets the new Pi session name before remote mode starts, so its first Mattermost card uses that title and automatic title generation is skipped. Pi exiting does not close the new window. Outside tmux, `!new session` does nothing. `!close this` acknowledges the request, disconnects remote mode, and closes its current tmux window; outside tmux it disconnects but leaves Pi open.
 
 `!remote update` can replace even a manually chosen title; if generation fails, it refreshes the card with the existing title and status. Remote reload preserves discuss mode, as does terminal reload.
 
