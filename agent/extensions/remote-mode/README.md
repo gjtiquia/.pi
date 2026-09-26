@@ -9,7 +9,7 @@ A global Pi extension that relays one Mattermost thread to the current Pi sessio
 - `core/`: generic routing, usage, aliases, and catalog rendering.
 - `standalone/`: Git and shell execution, using the adapter's cwd and project trust. These need no live session. Shell intentionally depends on `@earendil-works/pi-coding-agent` for Pi shell settings/resolution; Git uses Node only.
 - `hosted/`: skill, model, agent delivery/abort, and token logic, operating on a structural session adapter (no ExtensionAPI dependency). Compaction also requires the live session adapter; it is not a standalone shell command.
-- Remote `index.ts`: builds the adapter, posts replies, handles unknown-command prompt fallback, and owns discuss/remote/reload/new/close, tmux, and thread cards.
+- Remote `index.ts`: builds the adapter, posts replies, handles unknown-command prompt fallback, and owns remote/reload/new/close, tmux, and thread cards. Discuss routing is shared; session state lives in the discuss-mode extension.
 
 ### Public interface (`shared/index.ts`)
 

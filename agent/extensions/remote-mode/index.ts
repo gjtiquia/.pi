@@ -490,6 +490,13 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		});
 	}
 
+	function discuss() {
+		const binding: { handlers: { status(ctx: ExtensionContext): string; set(on: boolean, ctx: ExtensionContext): string }[] } = { handlers: [] };
+		pi.events.emit("pi:discuss-mode:bind:v1", binding);
+		if (binding.handlers.length !== 1) throw new Error("Discuss mode extension unavailable or ambiguous");
+		return binding.handlers[0]!;
+	}
+
 	function commandDefinitions(ctx: ExtensionContext): CommandDefinition[] {
 		const setRemoteStatus = async (status: string) => {
 			if (status !== "done" && status !== "active") return "Status must be done or active. Use !remote help.";
@@ -497,13 +504,6 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			persistState(ctx);
 			await patchRootPost(ctx);
 			return `Remote status: ${threadStatus}.`;
-		};
-		const discussStatus = () => `Discuss mode: ${process.env.PI_DISCUSS_MODE === "1" ? "on" : "off"}`;
-		const setDiscuss = (on: boolean) => {
-			const active = process.env.PI_DISCUSS_MODE === "1";
-			if (on === active) return `Discuss mode is already ${on ? "on" : "off"}.`;
-			pi.sendUserMessage("/discuss", { expandPromptTemplates: true });
-			return `Discuss mode: ${on ? "on" : "off"}`;
 		};
 		return [
 			{
@@ -517,16 +517,6 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 						? "Not inside tmux; no one-shot session was started."
 						: `Started remote one-shot Pi in tmux window ${result.windowId}. This session remains connected.`;
 				} } },
-			},
-			{
-				name: "discuss",
-				usage: ["!discuss — help + status", "!discuss status", "!discuss on", "!discuss off"],
-				status: discussStatus,
-				actions: {
-				status: { args: "none", run: discussStatus },
-				on: { args: "none", run: () => setDiscuss(true) },
-				off: { args: "none", run: () => setDiscuss(false) },
-				},
 			},
 			{
 				name: "remote",
@@ -663,6 +653,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 				return { entries: ctx.sessionManager.getEntries(), percent: usage?.percent,
 					contextWindow: usage?.contextWindow ?? ctx.model?.contextWindow ?? 0 };
 			},
+			discuss: { status: () => discuss().status(ctx), set: on => discuss().set(on, ctx) },
 		};
 		const result = await createCommandDispatcher(host, commandDefinitions(ctx))(message);
 		if (!result.handled) return false;

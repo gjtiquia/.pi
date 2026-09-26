@@ -26,6 +26,7 @@ test("shared catalog identifies standalone and session commands without host-spe
  assert.equal(classifySharedCommand("!$ pwd"), "standalone");
  assert.equal(classifySharedCommand("!skill list"), "session");
  assert.equal(classifySharedCommand("!stop"), "session");
+ assert.equal(classifySharedCommand("!discuss on"), "session");
  assert.equal(classifySharedCommand("!compact this"), "session");
  assert.equal(classifySharedCommand("!compress this"), "session");
  assert.equal(classifySharedCommand("!unknown"), undefined);
@@ -38,9 +39,26 @@ test("shared dispatcher owns routing, catalog composition and unknown fallback",
  assert.deepEqual(await dispatch("plain prompt"), { handled: false });
  assert.equal((await dispatch("!local status")).response, "local status");
  const help = (await dispatch("!ls")).response!;
- for (const name of ["!git", "!shell", "!skill", "!model", "!tokens", "!local"]) assert.ok(help.includes(name));
+ for (const name of ["!git", "!shell", "!skill", "!model", "!tokens", "!discuss", "!local"]) assert.ok(help.includes(name));
  assert.equal((await dispatch("!tokens status")).response, "25.0%/10k");
  assert.equal((await dispatch("!model status")).response, "Model: test/one\nThinking: low");
+});
+
+test("discuss catalog delegates explicit state changes to the session host", async () => {
+ const { host } = fixture();
+ let enabled = false;
+ host.discuss = { status: () => `Discuss mode: ${enabled ? "on" : "off"}`, set: on => {
+  if (enabled === on) return `Discuss mode is already ${on ? "on" : "off"}.`;
+  enabled = on;
+  return `Discuss mode: ${enabled ? "on" : "off"}`;
+ } };
+ const dispatch = createCommandDispatcher(host);
+ assert.match((await dispatch("!discuss")).response!, /!discuss on[\s\S]*Discuss mode: off/);
+ assert.equal((await dispatch("!discuss on")).response, "Discuss mode: on");
+ assert.equal((await dispatch("!discuss status")).response, "Discuss mode: on");
+ assert.equal((await dispatch("!discuss on")).response, "Discuss mode is already on.");
+ assert.equal((await dispatch("!discuss off")).response, "Discuss mode: off");
+ assert.match((await dispatch("!discuss nonsense")).response!, /Usage:/);
 });
 
 test("shared dispatcher preserves prompt text and session delivery semantics", async () => {

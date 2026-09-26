@@ -36,4 +36,6 @@ export interface CommandHost {
  getSkills(): { name: string; description?: string; source: string }[];
  model: ModelHost;
  tokens(): TokenSnapshot;
+ /** Session-scoped discuss mode; adapters may dispatch this through a session extension. */
+ discuss?: { status(): string | Promise<string>; set(on: boolean): string | Promise<string> };
 }

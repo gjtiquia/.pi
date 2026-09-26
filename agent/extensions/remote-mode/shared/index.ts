@@ -44,6 +44,12 @@ export function registerSharedCommands(host: CommandHost, local: CommandDefiniti
   { name: "git", usage: GIT_USAGE, actions: {} },
   { name: "shell", aliases: ["$"], usage: SHELL_USAGE, actions: {} },
   { name: "skill", sessionRequired: true, usage: SKILL_USAGE, actions: {} },
+  { name: "discuss", sessionRequired: true, usage: ["!discuss — help + status", "!discuss status", "!discuss on", "!discuss off"],
+   status: () => host.discuss?.status() ?? "Discuss mode unavailable.", actions: {
+    status: { args: "none", run: () => host.discuss?.status() ?? "Discuss mode unavailable." },
+    on: { args: "none", run: () => host.discuss?.set(true) ?? "Discuss mode unavailable." },
+    off: { args: "none", run: () => host.discuss?.set(false) ?? "Discuss mode unavailable." },
+   } },
   { name: "token", aliases: ["tokens"], sessionRequired: true, usage: ["!token / !tokens — help + stats", "!token status / !tokens status — stats"], status: tokens, actions: { status: { args: "none", run: tokens } } },
   { name: "model", sessionRequired: true, usage: ["!model — help + status", "!model status", "!model list — all providers", "!model set model <model> — current provider", "!model set model <provider> <model>", "!model set effort <off|minimal|low|medium|high|xhigh|max>"], status: () => model("status"), actions: {
    status: { args: "none", run: () => model("status") },

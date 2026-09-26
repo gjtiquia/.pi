@@ -486,7 +486,11 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			if (route.provider && route.id) args.push("--model", `${route.provider}/${route.id}`);
 			if (ctx.thinkingLevel) args.push("--thinking", ctx.thinkingLevel);
 
-			const discussModeEnabled = process.env[DISCUSS_MODE_ENV] === "1";
+			const discussBinding: { handlers: { status(ctx: typeof ctx): string }[] } = { handlers: [] };
+			pi.events.emit("pi:discuss-mode:bind:v1", discussBinding);
+			const discussModeEnabled = discussBinding.handlers.length === 1
+				? discussBinding.handlers[0]!.status(ctx) === "Discuss mode: on"
+				: process.env[DISCUSS_MODE_ENV] === "1";
 			const childTools = pi.getActiveTools().filter((name) => {
 				if (childDepth >= MAX_SUBAGENT_DEPTH && name === "subagent") return false;
 				if (discussModeEnabled && (name === "edit" || name === "write")) return false;
@@ -499,6 +503,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			const invocation = getPiInvocation(args);
 			const childEnvironment = {
 				...process.env,
+				[DISCUSS_MODE_ENV]: discussModeEnabled ? "1" : "0",
 				[SUBAGENT_SESSION_ROOT_ENV]: sessionDir,
 				[SUBAGENT_ROOT_SESSION_ID_ENV]: rootSessionId,
 				[SUBAGENT_PARENT_SESSION_ID_ENV]: childParentSessionId,
