@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { launchRemoteTmuxWindow, type TmuxRunner } from "./tmux-windows.ts";
+import { launchOneShotTmuxWindow, launchRemoteTmuxWindow, type TmuxRunner } from "./tmux-windows.ts";
 
 function mockTmux() {
 	const calls: string[][] = [];
@@ -31,6 +31,24 @@ test("new remote window passes a shell-quoted session title to Pi", async () => 
 		"send-keys", "-t", "%5", "-l", "--",
 		"pi --name 'O'\\''Brien; $(touch /tmp/nope)' '/remote on' '/remote ping'",
 	]);
+});
+
+test("one-shot always enables remote mode, pings, then sends a quoted prompt", async () => {
+	const { calls, run } = mockTmux();
+	const prompt = "First line\nSecond 'line'; $(touch /tmp/nope)";
+	assert.deepEqual(await launchOneShotTmuxWindow("/work", prompt, { run, env }), {
+		status: "created", sessionId: "$2", windowId: "@4", paneId: "%5",
+	});
+	assert.deepEqual(calls[2], ["send-keys", "-t", "%5", "-l", "--",
+		"PI_ONE_SHOT_CHILD=1 pi -- '/remote on' '/remote ping' 'First line\nSecond '\\''line'\\''; $(touch /tmp/nope)'"]);
+	assert.deepEqual(calls[3], ["send-keys", "-t", "%5", "Enter"]);
+});
+
+test("one-shot refuses empty prompts and does nothing outside tmux", async () => {
+	const { calls, run } = mockTmux();
+	await assert.rejects(launchOneShotTmuxWindow("/work", "  ", { run, env }), /empty/);
+	assert.deepEqual(await launchOneShotTmuxWindow("/work", "Do something", { run, env: {} }), { status: "not-tmux" });
+	assert.deepEqual(calls, []);
 });
 
 test("new remote window does nothing outside tmux, even with a title", async () => {

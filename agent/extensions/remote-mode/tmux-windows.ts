@@ -10,6 +10,10 @@ function startCommand(title?: string): string {
 	return `pi ${title ? `--name ${shellQuote(title)} ` : ""}'/remote on' '/remote ping'`;
 }
 
+function oneShotCommand(prompt: string): string {
+	return `PI_ONE_SHOT_CHILD=1 pi -- ${["/remote on", "/remote ping", prompt].map(shellQuote).join(" ")}`;
+}
+
 /** Runs tmux with argv (never through a shell); the default inherits this process's environment. */
 export type TmuxRunner = (args: readonly string[]) => Promise<string>;
 
@@ -55,6 +59,24 @@ async function currentWindow(paneId: string, run: TmuxRunner): Promise<{ session
 export async function launchRemoteTmuxWindow(
 	cwd: string,
 	title?: string,
+	options: TmuxWindowOptions = {},
+): Promise<TmuxLaunchResult> {
+	return launchTmuxWindow(cwd, startCommand(title), options);
+}
+
+/** Start a separate interactive Pi session and return as soon as its command is sent. */
+export async function launchOneShotTmuxWindow(
+	cwd: string,
+	prompt: string,
+	options: TmuxWindowOptions = {},
+): Promise<TmuxLaunchResult> {
+	if (!prompt.trim()) throw new Error("One-shot prompt cannot be empty");
+	return launchTmuxWindow(cwd, oneShotCommand(prompt), options);
+}
+
+async function launchTmuxWindow(
+	cwd: string,
+	command: string,
 	{ run = runTmux, env = process.env }: TmuxWindowOptions = {},
 ): Promise<TmuxLaunchResult> {
 	const currentPaneId = paneFromEnv(env);
@@ -67,7 +89,7 @@ export async function launchRemoteTmuxWindow(
 		throw new Error("tmux did not return the new window and pane IDs; refusing to send input");
 	}
 	const [windowId, paneId] = fields;
-	await run(["send-keys", "-t", paneId, "-l", "--", startCommand(title)]);
+	await run(["send-keys", "-t", paneId, "-l", "--", command]);
 	await run(["send-keys", "-t", paneId, "Enter"]);
 	return { status: "created", sessionId, windowId, paneId };
 }

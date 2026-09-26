@@ -3,7 +3,7 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { basename } from "node:path";
 import { Type } from "typebox";
 import { createCommandDispatcher, type CommandDefinition, type CommandHost } from "./shared/index.js";
-import { closeCurrentTmuxWindow, launchRemoteTmuxWindow } from "./tmux-windows.js";
+import { closeCurrentTmuxWindow, launchOneShotTmuxWindow, launchRemoteTmuxWindow } from "./tmux-windows.js";
 import { loadMattermostEnv, readMattermostConfig } from "../../mattermost/config.js";
 
 const STATE_TYPE = "remote-mode-thread";
@@ -491,6 +491,13 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	}
 
 	function commandDefinitions(ctx: ExtensionContext): CommandDefinition[] {
+		const setRemoteStatus = async (status: string) => {
+			if (status !== "done" && status !== "active") return "Status must be done or active. Use !remote help.";
+			threadStatus = status;
+			persistState(ctx);
+			await patchRootPost(ctx);
+			return `Remote status: ${threadStatus}.`;
+		};
 		const discussStatus = () => `Discuss mode: ${process.env.PI_DISCUSS_MODE === "1" ? "on" : "off"}`;
 		const setDiscuss = (on: boolean) => {
 			const active = process.env.PI_DISCUSS_MODE === "1";
@@ -499,6 +506,18 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			return `Discuss mode: ${on ? "on" : "off"}`;
 		};
 		return [
+			{
+				name: "one-shot",
+				usage: ["!one-shot <prompt> — start an independent remote Pi in a new tmux window"],
+				rawArgs: true,
+				actions: { "": { args: "required", run: async (prompt) => {
+					if (process.env.PI_ONE_SHOT_CHILD === "1") return "One-shot sessions cannot launch another one-shot.";
+					const result = await launchOneShotTmuxWindow(ctx.cwd, prompt);
+					return result.status === "not-tmux"
+						? "Not inside tmux; no one-shot session was started."
+						: `Started remote one-shot Pi in tmux window ${result.windowId}. This session remains connected.`;
+				} } },
+			},
 			{
 				name: "discuss",
 				usage: ["!discuss — help + status", "!discuss status", "!discuss on", "!discuss off"],
@@ -511,17 +530,12 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			},
 			{
 				name: "remote",
-				usage: ["!remote — help + status", "!remote status", "!remote set status done|active", "!remote set title <title>", "!remote update — regenerate title and refresh card"],
+				usage: ["!remote — help + status", "!remote status", "!remote done — alias for !remote set status done", "!remote set status done|active", "!remote set title <title>", "!remote update — regenerate title and refresh card"],
 				status: () => `Remote: ${displayStatus()}, title “${title ?? "(pending)"}”, ${enabled ? authenticated ? "connected" : "connecting" : "off"}`,
 				actions: {
 					status: { args: "none", run: () => `Remote: ${displayStatus()}, title “${title ?? "(pending)"}”, ${enabled ? authenticated ? "connected" : "connecting" : "off"}` },
-					"set status": { args: "required", run: async (status) => {
-						if (status !== "done" && status !== "active") return "Status must be done or active. Use !remote help.";
-						threadStatus = status;
-						persistState(ctx);
-						await patchRootPost(ctx);
-						return `Remote status: ${threadStatus}.`;
-					} },
+					done: { args: "none", run: () => setRemoteStatus("done") },
+					"set status": { args: "required", run: setRemoteStatus },
 					"set title": { args: "required", run: async (value) => {
 						const manualTitle = oneLine(value, 100);
 						if (!manualTitle) return "Title cannot be empty. Use !remote help.";

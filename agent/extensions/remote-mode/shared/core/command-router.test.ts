@@ -13,6 +13,19 @@ test("optional session title preserves spaces and allows an unnamed session", as
 	assert.deepEqual(titles, ["", "Fix remote title"]);
 });
 
+test("free-form action preserves multiline prompts without treating prompt words as subcommands", async () => {
+	const prompts: string[] = [];
+	const definitions = [{
+		name: "one-shot", usage: ["!one-shot <prompt>"], rawArgs: true,
+		actions: { "": { args: "required" as const, run: (prompt: string) => { prompts.push(prompt); } } },
+	}];
+	assert.match((await dispatchRemoteCommand("!one-shot", definitions)).response ?? "", /Usage/);
+	assert.match((await dispatchRemoteCommand("!one-shot  \n  ", definitions)).response ?? "", /Usage/);
+	await dispatchRemoteCommand("!one-shot  Review this:\n  keep indentation  and spacing", definitions);
+	await dispatchRemoteCommand("!one-shot remote done", definitions);
+	assert.deepEqual(prompts, ["Review this:\n  keep indentation  and spacing", "remote done"]);
+});
+
 test("list and ls show the same complete catalog as help", async () => {
 	const definitions = [
 		{ name: "help", aliases: ["list", "ls"], usage: ["!help / !list / !ls"], actions: {} },

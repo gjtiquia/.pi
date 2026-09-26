@@ -89,6 +89,7 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 !skill filter <keywords>      (alias: !skill search)
 !skill <skill-name> [prompt]  (invoke /skill:<skill-name> [prompt] in Pi)
 !remote                       (help + status)
+!remote done                 (alias for !remote set status done)
 !remote set status done|active
 !remote set title <title>
 !remote update               (regenerate title with a cheap model and refresh the card)
@@ -101,6 +102,7 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 !model set effort off|minimal|low|medium|high|xhigh|max
 !reload this                  (posts progress and result in the thread)
 !new session [title]         (parallel Pi in a new tmux window, optionally named; old thread stays online)
+!one-shot <prompt>           (independent remote Pi in a new tmux window; preserve prompt whitespace)
 !close this                  (disconnect and close this tmux window)
 ```
 
@@ -110,7 +112,7 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 
 Skill names must match a loaded skill exactly. An unknown name returns a hint rather than starting a model turn; skill invocations queue as follow-ups while Pi is busy. `help`, `list`, `search`, and `filter` are reserved subcommands.
 
-Bare `!compact` and `!compress` show usage instead of acting. They are session-dependent shared commands (`sessionRequired: true`), not standalone commands; completion or failure is posted after Pi finishes compaction. Bare `!reload`, `!new`, and `!close` show help and status instead of acting. `!new session` starts a fresh Pi in a shell-backed tmux window (with `/remote on` and `/remote ping` as startup commands), leaving the current session and window untouched. `!new session <title>` sets the new Pi session name before remote mode starts, so its first Mattermost card uses that title and automatic title generation is skipped. Pi exiting does not close the new window. Outside tmux, `!new session` does nothing. `!close this` acknowledges the request, disconnects remote mode, and closes its current tmux window; outside tmux it disconnects but leaves Pi open.
+Bare `!compact` and `!compress` show usage instead of acting. They are session-dependent shared commands (`sessionRequired: true`), not standalone commands; completion or failure is posted after Pi finishes compaction. Bare `!reload`, `!new`, and `!close` show help and status instead of acting. `!new session` starts a fresh Pi in a shell-backed tmux window (with `/remote on` and `/remote ping` as startup commands), leaving the current session and window untouched. `!new session <title>` sets the new Pi session name before remote mode starts, so its first Mattermost card uses that title and automatic title generation is skipped. Pi exiting does not close the new window. Outside tmux, `!new session` does nothing. `!one-shot <prompt>` is available only as a Mattermost remote command (not a model tool or terminal command). It starts a separate interactive Pi in the same tmux session, always enables remote mode, pings its new thread, then runs the prompt. It returns a launch acknowledgement in the original thread without waiting for the result; outside tmux it starts nothing. One-shot sessions cannot launch another one-shot. `!close this` acknowledges the request, disconnects remote mode, and closes its current tmux window; outside tmux it disconnects but leaves Pi open.
 
 `!remote update` can replace even a manually chosen title; if generation fails, it refreshes the card with the existing title and status. Remote reload preserves discuss mode, as does terminal reload.
 

@@ -5,6 +5,8 @@ export interface CommandDefinition {
 	sessionRequired?: boolean;
 	usage: string[];
 	status?: () => string | Promise<string>;
+	/** For a single free-form prompt action (key ""), preserve internal whitespace. */
+	rawArgs?: boolean;
 	actions: Record<string, {
 		args: "none" | "required" | "optional";
 		run: (args: string) => string | void | Promise<string | void>;
@@ -50,10 +52,12 @@ export async function dispatchRemoteCommand(
 			const actionParts = key.split(/\s+/).filter(Boolean);
 			return actionParts.length <= args.length && actionParts.every((part, index) => part === args[index]);
 		});
-	if (!action) return usageAndStatus();
+	if (action === undefined) return usageAndStatus();
 
 	const actionLength = action.split(/\s+/).filter(Boolean).length;
-	const actionArgs = args.slice(actionLength).join(" ");
+	const actionArgs = definition.rawArgs && action === ""
+		? input.trimStart().slice(parts[0].length).trim()
+		: args.slice(actionLength).join(" ");
 	const operation = definition.actions[action];
 	if ((operation.args === "none" && actionArgs) || (operation.args === "required" && !actionArgs)) {
 		return usageAndStatus();
