@@ -35,13 +35,14 @@ Bind the adapter to a valid session context; rebuild it after session replacemen
 
 ### Tests
 
-With `tsx`, Node types, and Pi's runtime dependencies resolvable in `node_modules`:
+Install the remote-mode test dependencies, then run the complete suite from the repository root:
 
 ```sh
-node --import tsx --test $(find agent/extensions/remote-mode/shared -name '*.test.ts')
+npm ci --prefix agent/extensions/remote-mode
+npm test --prefix agent/extensions/remote-mode
 ```
 
-Dispatcher tests exercise composition/fallback, session delivery, skills, model validation, token aggregation, cwd, and trusted/untrusted shell settings. Lower-level parser/execution tests live beside their modules. `shared/package.json` declares ESM so these tests also run after a standalone directory copy.
+The test package pins Pi's runtime dependency; update it when upgrading Pi. Dispatcher tests exercise composition/fallback, session delivery, skills, model validation, token aggregation, cwd, and trusted/untrusted shell settings. Lower-level parser/execution tests live beside their modules. `shared/package.json` declares ESM so these tests also run after a standalone directory copy.
 
 ## Configuration
 

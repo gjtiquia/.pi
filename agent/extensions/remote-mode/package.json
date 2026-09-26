@@ -1,0 +1,12 @@
+{
+  "name": "remote-mode-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --import tsx --test $(find . -name '*.test.ts' -not -path './node_modules/*')"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "0.87.1",
+    "tsx": "^4.23.15"
+  }
+}
