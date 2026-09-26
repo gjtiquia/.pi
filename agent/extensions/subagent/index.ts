@@ -11,6 +11,7 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { MODEL_TIER_VALUES, resolveModelRoute, type ModelTier } from "../../preferences/model-tiers.ts";
 
 const SUBAGENT_SESSION_ROOT_ENV = "PI_SUBAGENT_SESSION_ROOT";
 const SUBAGENT_ROOT_SESSION_ID_ENV = "PI_SUBAGENT_ROOT_SESSION_ID";
@@ -21,23 +22,6 @@ const SUBAGENT_ANCESTRY_ENV = "PI_SUBAGENT_ANCESTRY";
 const DISCUSS_MODE_ENV = "PI_DISCUSS_MODE";
 const MAX_SUBAGENT_DEPTH = 100;
 const METADATA_DIRECTORY = ".metadata";
-
-const MODEL_TIERS = {
-	"openai-codex": {
-		fast: "gpt-6-luna",
-		balanced: "gpt-6-sol",
-		deep: "gpt-6-astra",
-	},
-	"opencode-go": {
-		fast: "deepseek-v4.1-flash",
-		balanced: "glm-5.3-flash",
-		deep: "kimi-k3",
-	},
-} as const;
-
-const MODEL_TIER_VALUES = ["fast", "balanced", "deep", "inherit"] as const;
-type ModelTier = (typeof MODEL_TIER_VALUES)[number];
-type RoutedModelTier = Exclude<ModelTier, "inherit">;
 
 interface DelegationAncestor {
 	sessionId: string;
@@ -268,37 +252,6 @@ interface SubagentDetails {
 	childSessionPath?: string;
 	resumed: boolean;
 	output?: string;
-}
-
-function resolveModelRoute(
-	modelTier: ModelTier,
-	activeModel: { provider: string; id: string } | undefined,
-	modelExists: (provider: string, id: string) => boolean,
-): { provider?: string; id?: string; fallbackReason?: string } {
-	if (!activeModel) {
-		return { fallbackReason: "no active model was available" };
-	}
-	if (modelTier === "inherit") {
-		return { provider: activeModel.provider, id: activeModel.id };
-	}
-
-	const providerRoutes = MODEL_TIERS[activeModel.provider as keyof typeof MODEL_TIERS];
-	const routedId = providerRoutes?.[modelTier as RoutedModelTier];
-	if (!routedId) {
-		return {
-			provider: activeModel.provider,
-			id: activeModel.id,
-			fallbackReason: `no ${modelTier} route is configured for ${activeModel.provider}`,
-		};
-	}
-	if (!modelExists(activeModel.provider, routedId)) {
-		return {
-			provider: activeModel.provider,
-			id: activeModel.id,
-			fallbackReason: `${activeModel.provider}/${routedId} is unavailable`,
-		};
-	}
-	return { provider: activeModel.provider, id: routedId };
 }
 
 function formatSessionId(details: SubagentDetails, theme: { fg: (color: "muted", text: string) => string }): string {
