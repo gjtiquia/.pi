@@ -72,7 +72,7 @@ export function createCommandDispatcher(host: CommandHost, local: CommandDefinit
   if (/^!skill(?=\s|$)/.test(input.trimStart())) return handleSkillCommand(input, host.getSkills(), (prompt) => host.sendUserMessage(prompt, {
    ...(host.isIdle() ? {} : { deliverAs: "followUp" as const }), expandPromptTemplates: true,
   }));
-  if (/^!ram\s*$/.test(input.trim())) return { handled: true, response: ramStatus() };
+  if (/^!ram\s*$/.test(input.trim())) return { handled: true, response: await ramStatus() };
   if (/^!git(?=\s|$)/.test(input.trimStart())) return { handled: true, response: await handleGitCommand(input, host.cwd) };
   if (/^!(?:\$|shell)(?=\s|$)/.test(input.trimStart())) return { handled: true, response: await handleShellCommand(input, host.cwd, host.projectTrusted) };
   return dispatchRemoteCommand(input, definitions);

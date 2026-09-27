@@ -82,7 +82,7 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 !steer <prompt>               (steer current work as soon as possible)
 !git <args>                   (run Git in Pi's working directory; unrestricted)
 !$ <command> / !shell <command> (run a shell command in Pi's working directory; unrestricted)
-!ram                          (RAM used/total, available, and swap on the host running Pi)
+!ram                          (host RAM and best-effort tmux PSS by session/window)
 !token / !tokens              (help + footer-style stats)
 !token status                 (alias: !tokens status)
 !skill / !skill help          (usage; does not invoke a skill)
@@ -107,6 +107,8 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 !one-shot <prompt>           (independent remote Pi in a new tmux window; preserve prompt whitespace)
 !close this                  (disconnect and close this tmux window)
 ```
+
+`!ram` reports host RAM, then the PSS of processes descended from each tmux pane, grouped by window and session, plus the shared tmux server. Pi subagent processes normally count under their parent Pi's pane (Gateway conversations under the Gateway pane). Reparented children and other tmux servers/sockets are not captured; unreadable process memory can make totals low. On hosts without an accessible tmux server, the host RAM line still works. This is a snapshot, not exact cgroup accounting.
 
 `!git` invokes the Git executable directly with shell-style quoted arguments, without a shell or model turn. Git aliases and hooks still run normally. Bare `!git` shows usage. Output (up to 64 KB), errors, and the exit status are posted to the thread; commands time out after two minutes. Interactive prompts and pagers are disabled.
 
