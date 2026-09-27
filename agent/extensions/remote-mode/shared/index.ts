@@ -5,6 +5,7 @@ import { handleModelCommand } from "./hosted/model-commands.js";
 import { tokenStatus } from "./hosted/token-commands.js";
 import { handleGitCommand, GIT_USAGE } from "./standalone/git-commands.js";
 import { handleShellCommand, SHELL_USAGE } from "./standalone/shell-commands.js";
+import { ramStatus } from "./standalone/ram-commands.js";
 import type { CommandHost } from "./host.js";
 
 export type { CommandHost, ModelHost, ModelRef, Effort, TokenEntry, TokenUsage, TokenSnapshot } from "./host.js";
@@ -43,6 +44,7 @@ export function registerSharedCommands(host: CommandHost, local: CommandDefiniti
   },
   { name: "git", usage: GIT_USAGE, actions: {} },
   { name: "shell", aliases: ["$"], usage: SHELL_USAGE, actions: {} },
+  { name: "ram", usage: ["!ram — RAM usage on this host"], actions: {} },
   { name: "skill", sessionRequired: true, usage: SKILL_USAGE, actions: {} },
   { name: "discuss", sessionRequired: true, usage: ["!discuss — help + status", "!discuss status", "!discuss on", "!discuss off"],
    status: () => host.discuss?.status() ?? "Discuss mode unavailable.", actions: {
@@ -70,6 +72,7 @@ export function createCommandDispatcher(host: CommandHost, local: CommandDefinit
   if (/^!skill(?=\s|$)/.test(input.trimStart())) return handleSkillCommand(input, host.getSkills(), (prompt) => host.sendUserMessage(prompt, {
    ...(host.isIdle() ? {} : { deliverAs: "followUp" as const }), expandPromptTemplates: true,
   }));
+  if (/^!ram\s*$/.test(input.trim())) return { handled: true, response: ramStatus() };
   if (/^!git(?=\s|$)/.test(input.trimStart())) return { handled: true, response: await handleGitCommand(input, host.cwd) };
   if (/^!(?:\$|shell)(?=\s|$)/.test(input.trimStart())) return { handled: true, response: await handleShellCommand(input, host.cwd, host.projectTrusted) };
   return dispatchRemoteCommand(input, definitions);

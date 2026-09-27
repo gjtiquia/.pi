@@ -24,6 +24,7 @@ function fixture() {
 test("shared catalog identifies standalone and session commands without host-specific routing lists", () => {
  assert.equal(classifySharedCommand("!help"), "standalone");
  assert.equal(classifySharedCommand("!$ pwd"), "standalone");
+ assert.equal(classifySharedCommand("!ram"), "standalone");
  assert.equal(classifySharedCommand("!skill list"), "session");
  assert.equal(classifySharedCommand("!stop"), "session");
  assert.equal(classifySharedCommand("!discuss on"), "session");
@@ -39,9 +40,15 @@ test("shared dispatcher owns routing, catalog composition and unknown fallback",
  assert.deepEqual(await dispatch("plain prompt"), { handled: false });
  assert.equal((await dispatch("!local status")).response, "local status");
  const help = (await dispatch("!ls")).response!;
- for (const name of ["!git", "!shell", "!skill", "!model", "!tokens", "!discuss", "!local"]) assert.ok(help.includes(name));
+ for (const name of ["!git", "!shell", "!ram", "!skill", "!model", "!tokens", "!discuss", "!local"]) assert.ok(help.includes(name));
  assert.equal((await dispatch("!tokens status")).response, "25.0%/10k");
  assert.equal((await dispatch("!model status")).response, "Model: test/one\nThinking: low");
+});
+
+test("bare ram returns host status without a session or model turn", async () => {
+ const dispatch = createCommandDispatcher(fixture().host);
+ assert.match((await dispatch("!ram")).response!, /^RAM: .* available\. Swap: /);
+ assert.match((await dispatch("!ram extra")).response!, /Usage:\n!ram/);
 });
 
 test("discuss catalog delegates explicit state changes to the session host", async () => {

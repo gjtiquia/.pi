@@ -7,7 +7,7 @@ A global Pi extension that relays one Mattermost thread to the current Pi sessio
 `shared/` is the canonical, copyable command implementation. Copy the **entire directory** (including `package.json` and tests) into the downstream `pi-personal` host; do not copy remote `index.ts` or implement a second parser. Internal imports never reach outside `shared/`.
 
 - `core/`: generic routing, usage, aliases, and catalog rendering.
-- `standalone/`: Git and shell execution, using the adapter's cwd and project trust. These need no live session. Shell intentionally depends on `@earendil-works/pi-coding-agent` for Pi shell settings/resolution; Git uses Node only.
+- `standalone/`: Git and shell execution, plus read-only Linux RAM status. These need no live session. Shell intentionally depends on `@earendil-works/pi-coding-agent` for Pi shell settings/resolution; Git and RAM status use Node only.
 - `hosted/`: skill, model, agent delivery/abort, and token logic, operating on a structural session adapter (no ExtensionAPI dependency). Compaction also requires the live session adapter; it is not a standalone shell command.
 - Remote `index.ts`: builds the adapter, posts replies, handles unknown-command prompt fallback, and owns remote/reload/new/close, tmux, and thread cards. Discuss routing is shared; session state lives in the discuss-mode extension.
 
@@ -82,6 +82,7 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 !steer <prompt>               (steer current work as soon as possible)
 !git <args>                   (run Git in Pi's working directory; unrestricted)
 !$ <command> / !shell <command> (run a shell command in Pi's working directory; unrestricted)
+!ram                          (RAM used/total, available, and swap on the host running Pi)
 !token / !tokens              (help + footer-style stats)
 !token status                 (alias: !tokens status)
 !skill / !skill help          (usage; does not invoke a skill)
