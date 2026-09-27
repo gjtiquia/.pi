@@ -3,7 +3,7 @@
 export const MODEL_TIERS = {
   "openai-codex": {
     fast: "gpt-6-luna",
-    balanced: "gpt-6-sol",
+    balanced: "gpt-5.6-sol",
     deep: "gpt-6-astra",
   },
   "opencode-go": {
