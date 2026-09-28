@@ -463,9 +463,13 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		void updateActivity("thinking…", ctx);
 	}
 
-	async function completeActivity(run: ActivityRun, ctx: ExtensionContext): Promise<void> {
+	async function completeActivity(
+		run: ActivityRun,
+		ctx: ExtensionContext,
+		outcome: "completed" | "failed" = "completed",
+	): Promise<void> {
 		if (activityRun === run) activityRun = undefined;
-		await updateActivity("completed", ctx, run);
+		await updateActivity(outcome, ctx, run);
 		run.active = false;
 		activityRuns.delete(run);
 	}
@@ -1017,9 +1021,8 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		}
 	});
 
-	pi.on("agent_start", (_event, ctx) => {
+	pi.on("agent_start", () => {
 		assistantActivationId = enabled ? activationId : undefined;
-		startActivity(ctx);
 	});
 
 	pi.on("message_start", async (event, ctx) => {
@@ -1066,10 +1069,11 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			.map((block) => block.text)
 			.join("\n")
 			.trim();
-		if (!text) return;
+		const failed = event.message.stopReason === "error";
+		if (!text && !failed) return;
 
 		const completedActivity = activityRun;
-		if (completedActivity) await completeActivity(completedActivity, ctx);
+		if (completedActivity) await completeActivity(completedActivity, ctx, failed ? "failed" : "completed");
 		await mirrorAssistantResponse(ctx, text, assistantActivationId);
 	});
 
