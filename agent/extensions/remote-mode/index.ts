@@ -146,7 +146,6 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	let threadStatus: NonNullable<ThreadState["status"]> = "active";
 	let titleAttempted = false;
 	let titleGenerationId = 0;
-	let finalAssistantText: string | undefined;
 	let assistantActivationId: number | undefined;
 	let activityRun: ActivityRun | undefined;
 	let compacting = false;
@@ -456,6 +455,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	}
 
 	function startActivity(ctx: ExtensionContext): void {
+		if (!enabled || !config) return;
 		if (!activityRun) {
 			activityRun = { active: true, lines: [], updates: Promise.resolve() };
 			activityRuns.add(activityRun);
@@ -819,7 +819,6 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		if (!enabled) return true;
 		enabled = false;
 		activationId += 1;
-		finalAssistantText = undefined;
 		assistantActivationId = undefined;
 		resetActivity();
 		persistState(ctx);
@@ -1019,9 +1018,8 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("agent_start", (_event, ctx) => {
-		finalAssistantText = undefined;
 		assistantActivationId = enabled ? activationId : undefined;
-		void updateActivity("thinking…", ctx);
+		startActivity(ctx);
 	});
 
 	pi.on("message_start", async (event, ctx) => {
@@ -1032,19 +1030,19 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		}
 		if (!enabled) return;
 		if (activityRun) await completeActivity(activityRun, ctx);
-		// Steering and follow-up messages are consumed before agent_settled. Flush
-		// the completed response now so the next response cannot overwrite it.
-		const completedText = finalAssistantText;
-		finalAssistantText = undefined;
-		await mirrorAssistantResponse(ctx, completedText, assistantActivationId);
 		startActivity(ctx);
 	});
 
 	pi.on("message_update", (event, ctx) => {
 		const updateType = event.assistantMessageEvent.type;
-		if (updateType === "thinking_start") void updateActivity("thinking…", ctx);
-		else if (updateType === "text_start") void updateActivity("responding…", ctx);
-		else if (updateType === "toolcall_start") {
+		if (updateType === "thinking_start") {
+			startActivity(ctx);
+			void updateActivity("thinking…", ctx);
+		} else if (updateType === "text_start") {
+			startActivity(ctx);
+			void updateActivity("responding…", ctx);
+		} else if (updateType === "toolcall_start") {
+			startActivity(ctx);
 			const block = event.assistantMessageEvent.partial.content[event.assistantMessageEvent.contentIndex];
 			const toolName = block?.type === "toolCall" ? block.name : undefined;
 			void updateActivity(toolName ? `preparing ${toolName.replaceAll("_", " ")}…` : "preparing a tool…", ctx);
@@ -1052,30 +1050,33 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("tool_execution_start", (event, ctx) => {
+		startActivity(ctx);
 		void updateActivity(toolActivity(event.toolName, event.args), ctx);
 	});
 
 	pi.on("tool_execution_end", (_event, ctx) => {
+		startActivity(ctx);
 		void updateActivity("thinking…", ctx);
 	});
 
-	pi.on("message_end", (event) => {
+	pi.on("message_end", async (event, ctx) => {
 		if (event.message.role !== "assistant") return;
-		finalAssistantText = event.message.content
+		const text = event.message.content
 			.filter((block) => block.type === "text")
 			.map((block) => block.text)
 			.join("\n")
 			.trim();
+		if (!text) return;
+
+		const completedActivity = activityRun;
+		if (completedActivity) await completeActivity(completedActivity, ctx);
+		await mirrorAssistantResponse(ctx, text, assistantActivationId);
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
-		const text = finalAssistantText;
-		const responseActivationId = assistantActivationId;
 		const settledActivity = activityRun;
-		finalAssistantText = undefined;
 		assistantActivationId = undefined;
 		if (settledActivity) await completeActivity(settledActivity, ctx);
-		await mirrorAssistantResponse(ctx, text, responseActivationId);
 	});
 
 	pi.on("session_shutdown", async (event) => {
@@ -1084,7 +1085,6 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		titleGenerationId += 1;
 		enabled = false;
 		activationId += 1;
-		finalAssistantText = undefined;
 		assistantActivationId = undefined;
 		resetActivity();
 		setMetadataToolEnabled(false);
