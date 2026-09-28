@@ -490,6 +490,26 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		});
 	}
 
+	async function mirrorAssistantResponse(
+		ctx: ExtensionContext,
+		text: string | undefined,
+		responseActivationId: number | undefined,
+	): Promise<void> {
+		if (!enabled || !config || !text || responseActivationId === undefined) return;
+		try {
+			const rootId = await ensureRootPost(ctx);
+			if (!enabled || activationId !== responseActivationId) return;
+			await api<MattermostPost>("/posts", {
+				method: "POST",
+				body: JSON.stringify({ channel_id: config.channelId, root_id: rootId, message: text }),
+			});
+		} catch (error) {
+			if (enabled && (error as Error).name !== "AbortError") {
+				ctx.ui.notify(`Could not mirror response to Mattermost: ${errorMessage(error)}`, "warning");
+			}
+		}
+	}
+
 	function discuss() {
 		const binding: { handlers: { status(ctx: ExtensionContext): string; set(on: boolean, ctx: ExtensionContext): string }[] } = { handlers: [] };
 		pi.events.emit("pi:discuss-mode:bind:v1", binding);
@@ -1012,6 +1032,11 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		}
 		if (!enabled) return;
 		if (activityRun) await completeActivity(activityRun, ctx);
+		// Steering and follow-up messages are consumed before agent_settled. Flush
+		// the completed response now so the next response cannot overwrite it.
+		const completedText = finalAssistantText;
+		finalAssistantText = undefined;
+		await mirrorAssistantResponse(ctx, completedText, assistantActivationId);
 		startActivity(ctx);
 	});
 
@@ -1050,20 +1075,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		finalAssistantText = undefined;
 		assistantActivationId = undefined;
 		if (settledActivity) await completeActivity(settledActivity, ctx);
-		if (!enabled || !config || !text || responseActivationId === undefined) return;
-
-		try {
-			const rootId = await ensureRootPost(ctx);
-			if (!enabled || activationId !== responseActivationId) return;
-			await api<MattermostPost>("/posts", {
-				method: "POST",
-				body: JSON.stringify({ channel_id: config.channelId, root_id: rootId, message: text }),
-			});
-		} catch (error) {
-			if (enabled && (error as Error).name !== "AbortError") {
-				ctx.ui.notify(`Could not mirror response to Mattermost: ${errorMessage(error)}`, "warning");
-			}
-		}
+		await mirrorAssistantResponse(ctx, text, responseActivationId);
 	});
 
 	pi.on("session_shutdown", async (event) => {
