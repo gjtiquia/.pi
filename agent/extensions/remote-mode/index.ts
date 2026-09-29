@@ -3,6 +3,12 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 import { basename } from "node:path";
 import { Type } from "typebox";
 import { createCommandDispatcher, type CommandDefinition, type CommandHost } from "./shared/index.js";
+import {
+	ActivityTracker,
+	formatCommandActivity,
+	renderActivityStatus,
+	type FormattedActivityUpdate,
+} from "./status-tracker.js";
 import { closeCurrentTmuxWindow, launchOneShotTmuxWindow, launchRemoteTmuxWindow } from "./tmux-windows.js";
 import { loadMattermostEnv, readMattermostConfig } from "../../mattermost/config.js";
 
@@ -33,6 +39,7 @@ const STATUS_KEY = "remote-mode";
 const METADATA_TOOL_NAME = "remote_session_metadata";
 const RECONNECT_DELAY_MS = 5_000;
 const MAX_ACTIVITY_CHARS = 14_000;
+const MAX_ACTIVITY_COMMAND_CHARS = 13_000;
 const MAX_TITLE_CONTEXT_CHARS = 4_000;
 const TITLE_MODELS: Readonly<Record<string, readonly string[]>> = {
 	"openai-codex": ["gpt-5.3-codex-spark", "gpt-6-luna"],
@@ -89,15 +96,17 @@ function oneLine(text: string, maxLength = 100): string {
 	return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
-function toolActivity(toolName: string, args: Record<string, unknown> | undefined): string {
+function toolActivity(toolName: string, args: Record<string, unknown> | undefined): string | FormattedActivityUpdate {
 	const input = args ?? {};
 	const stringArg = (name: string): string | undefined =>
 		typeof input[name] === "string" ? oneLine(input[name] as string, 80) : undefined;
 
 	switch (toolName) {
 		case "bash":
-		case "powershell":
-			return `running ${stringArg("command") ?? toolName}`;
+		case "powershell": {
+			const command = typeof input.command === "string" ? input.command : undefined;
+			return formatCommandActivity(toolName, command, MAX_ACTIVITY_COMMAND_CHARS);
+		}
 		case "read":
 			return `reading ${stringArg("path") ?? "a file"}`;
 		case "write":
@@ -149,6 +158,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	let assistantActivationId: number | undefined;
 	let activityRun: ActivityRun | undefined;
 	let compacting = false;
+	const activityTracker = new ActivityTracker();
 	const activityRuns = new Set<ActivityRun>();
 
 	function setStatus(ctx: ExtensionContext): void {
@@ -397,11 +407,11 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		activityRun = undefined;
 	}
 
-	function updateActivity(activity: string, ctx: ExtensionContext, run = activityRun): Promise<void> {
+	function updateActivity(activity: string | FormattedActivityUpdate, ctx: ExtensionContext, run = activityRun): Promise<void> {
 		if (!run || !run.active || !activityRuns.has(run) || !enabled || !config) {
 			return run?.updates ?? Promise.resolve();
 		}
-		const line = `[${activity}]`;
+		const line = typeof activity === "string" || !activity.formatted ? `[${typeof activity === "string" ? activity : activity.text}]` : activity.text;
 		if (line === run.lines.at(-1)) return run.updates;
 		run.lines.push(line);
 		let omitted = false;
@@ -677,6 +687,13 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 				return { entries: ctx.sessionManager.getEntries(), percent: usage?.percent,
 					contextWindow: usage?.contextWindow ?? ctx.model?.contextWindow ?? 0 };
 			},
+			status: () => renderActivityStatus(activityTracker.snapshot(), {
+				idle: ctx.isIdle(),
+				pendingMessages: ctx.hasPendingMessages(),
+				model: ctx.model,
+				thinkingLevel: ctx.thinkingLevel,
+				compacting,
+			}),
 			discuss: { status: () => discuss().status(ctx), set: on => discuss().set(on, ctx) },
 		};
 		const result = await createCommandDispatcher(host, commandDefinitions(ctx))(message);
@@ -961,6 +978,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 
 	pi.on("session_start", (_event, ctx) => {
 		context = ctx;
+		activityTracker.reset();
 		enabled = false;
 		rootPostId = undefined;
 		rootPostPromise = undefined;
@@ -1022,11 +1040,13 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	});
 
 	pi.on("agent_start", () => {
+		activityTracker.start();
 		assistantActivationId = enabled ? activationId : undefined;
 	});
 
 	pi.on("message_start", async (event, ctx) => {
 		if (event.message.role !== "user") return;
+		activityTracker.progress("thinking");
 		const text = messageText(event.message);
 		if (enabled && title === undefined && titleSource === undefined && !titleAttempted && text) {
 			void generateTitle(ctx, ctx.sessionManager.getSessionId(), activationId, text);
@@ -1038,28 +1058,45 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 
 	pi.on("message_update", (event, ctx) => {
 		const updateType = event.assistantMessageEvent.type;
-		if (updateType === "thinking_start") {
-			startActivity(ctx);
-			void updateActivity("thinking…", ctx);
-		} else if (updateType === "text_start") {
-			startActivity(ctx);
-			void updateActivity("responding…", ctx);
-		} else if (updateType === "toolcall_start") {
-			startActivity(ctx);
-			const block = event.assistantMessageEvent.partial.content[event.assistantMessageEvent.contentIndex];
-			const toolName = block?.type === "toolCall" ? block.name : undefined;
-			void updateActivity(toolName ? `preparing ${toolName.replaceAll("_", " ")}…` : "preparing a tool…", ctx);
+		if (updateType === "thinking_start" || updateType === "thinking_delta") {
+			activityTracker.progress("thinking");
+			if (updateType === "thinking_start") {
+				startActivity(ctx);
+				void updateActivity("thinking…", ctx);
+			}
+		} else if (updateType === "text_start" || updateType === "text_delta") {
+			activityTracker.progress("responding");
+			if (updateType === "text_start") {
+				startActivity(ctx);
+				void updateActivity("responding…", ctx);
+			}
+		} else if (updateType === "toolcall_start" || updateType === "toolcall_delta") {
+			activityTracker.progress("preparing tools");
+			if (updateType === "toolcall_start") {
+				startActivity(ctx);
+				const block = event.assistantMessageEvent.partial.content[event.assistantMessageEvent.contentIndex];
+				const toolName = block?.type === "toolCall" ? block.name : undefined;
+				void updateActivity(toolName ? `preparing ${toolName.replaceAll("_", " ")}…` : "preparing a tool…", ctx);
+			}
+		} else {
+			activityTracker.progress(activityTracker.snapshot().phase);
 		}
 	});
 
 	pi.on("tool_execution_start", (event, ctx) => {
+		activityTracker.startTool(event.toolCallId, event.toolName, event.args);
 		startActivity(ctx);
 		void updateActivity(toolActivity(event.toolName, event.args), ctx);
 	});
 
-	pi.on("tool_execution_end", (_event, ctx) => {
+	pi.on("tool_execution_update", (event) => {
+		activityTracker.updateTool(event.toolCallId, event.partialResult);
+	});
+
+	pi.on("tool_execution_end", (event, ctx) => {
+		activityTracker.endTool(event.toolCallId, event.isError);
 		startActivity(ctx);
-		void updateActivity("thinking…", ctx);
+		if (activityTracker.snapshot().activeTools.length === 0) void updateActivity("thinking…", ctx);
 	});
 
 	pi.on("message_end", async (event, ctx) => {
@@ -1077,13 +1114,23 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		await mirrorAssistantResponse(ctx, text, assistantActivationId);
 	});
 
+	pi.on("agent_end", () => {
+		activityTracker.progress("finishing or waiting for continuation");
+	});
+
+	pi.on("agent_before_settle", (event) => {
+		activityTracker.setOutcome(event.outcome);
+	});
+
 	pi.on("agent_settled", async (_event, ctx) => {
+		activityTracker.settle();
 		const settledActivity = activityRun;
 		assistantActivationId = undefined;
 		if (settledActivity) await completeActivity(settledActivity, ctx);
 	});
 
 	pi.on("session_shutdown", async (event) => {
+		activityTracker.reset();
 		// Reload is temporary; leaving a session permanently is not.
 		if (event.reason !== "reload" && context && enabled) await disable(context);
 		titleGenerationId += 1;

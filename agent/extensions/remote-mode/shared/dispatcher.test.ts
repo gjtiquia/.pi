@@ -26,6 +26,7 @@ test("shared catalog identifies standalone and session commands without host-spe
  assert.equal(classifySharedCommand("!$ pwd"), "standalone");
  assert.equal(classifySharedCommand("!ram"), "standalone");
  assert.equal(classifySharedCommand("!skill list"), "session");
+ assert.equal(classifySharedCommand("!status"), "session");
  assert.equal(classifySharedCommand("!stop"), "session");
  assert.equal(classifySharedCommand("!discuss on"), "session");
  assert.equal(classifySharedCommand("!compact this"), "session");
@@ -43,6 +44,15 @@ test("shared dispatcher owns routing, catalog composition and unknown fallback",
  for (const name of ["!git", "!shell", "!ram", "!skill", "!model", "!tokens", "!discuss", "!local"]) assert.ok(help.includes(name));
  assert.equal((await dispatch("!tokens status")).response, "25.0%/10k");
  assert.equal((await dispatch("!model status")).response, "Model: test/one\nThinking: low");
+});
+
+test("bare status returns live diagnostics without a model turn", async () => {
+ const { host } = fixture();
+ host.status = () => "State: RUNNING for 42s";
+ const dispatch = createCommandDispatcher(host);
+ assert.equal((await dispatch("!status")).response, "State: RUNNING for 42s");
+ assert.match((await dispatch("!status help")).response!, /!status/);
+ assert.equal((await createCommandDispatcher(fixture().host)("!status")).response, "Session status unavailable.");
 });
 
 test("bare ram returns host status without a session or model turn", async () => {

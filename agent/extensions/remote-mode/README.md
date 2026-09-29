@@ -25,6 +25,7 @@ Type exports: `CommandHost`, `CommandResult`, `CommandDefinition`, `ModelHost`, 
 
 - `cwd: string`, `projectTrusted: boolean` are host-authorized execution context, not user input.
 - `isIdle()`, `hasPendingMessages()`, `abort()` (abort AND clear pending messages).
+- Optional `status()` returns human-readable live activity diagnostics for `!status`.
 - `compact(): Promise<void>` compacts the active Pi session, resolving only when finished and rejecting on failure. Bind it to `ctx.compact({ onComplete, onError })`; it requires a live session and must not be implemented by launching a separate Pi process. Shared `!compact this` / `!compress this` refuses to start while work or queued messages remain, since Pi's manual compaction otherwise aborts active work.
 - `sendUserMessage(prompt, options?)`, with optional `deliverAs: "steer" | "followUp"` and `expandPromptTemplates: boolean` fields. Shared logic decides idle/busy delivery and skill expansion.
 - `getSkills()` returns `{ name, description?, source }[]`; only `source === "skill"` is included.
@@ -76,6 +77,7 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 
 ```text
 !help / !list / !ls           (all commands, with status)
+!status                       (live run, phase, tools, progress, queue, and model diagnostics)
 !stop / !abort                (abort current work and clear queued messages)
 !compact this / !compress this (compact the active Pi session; idle only)
 !queue <prompt>               (send after current work finishes)
@@ -110,6 +112,8 @@ Mattermost replies beginning with a recognized `!` command are handled directly,
 
 `!ram` reports host RAM, then the PSS of processes descended from each tmux pane, grouped by window and session, plus the shared tmux server. Pi subagent processes normally count under their parent Pi's pane (Gateway conversations under the Gateway pane). Reparented children and other tmux servers/sockets are not captured; unreadable process memory can make totals low. On hosts without an accessible tmux server, the host RAM line still works. This is a snapshot, not exact cgroup accounting.
 
+`!status` reports generic session activity without a model turn: running or idle duration, current phase, time since progress, all active tools, whether prompts are queued, and the active model and effort. Known tools add useful details without changing the generic tracker. Subagents include their summary, child activity, child event age, stall timeout, and child session ID when available. Bash and PowerShell tools show their complete command, including multiline commands. Status reports observable inactivity rather than claiming that work is stuck.
+
 `!git` invokes the Git executable directly with shell-style quoted arguments, without a shell or model turn. Git aliases and hooks still run normally. Bare `!git` shows usage. Output (up to 64 KB), errors, and the exit status are posted to the thread; commands time out after two minutes. Interactive prompts and pagers are disabled.
 
 `!$` and `!shell` are aliases that execute the rest of the message as shell code, without a model turn. They use Pi's configured `shellPath` (Bash by default, or Zsh if configured), `shellCommandPrefix`, and working directory. Bare aliases show usage. Output is capped at 64 KB and execution times out after two minutes. Anyone who can reply in the session thread can execute arbitrary commands with Pi's OS permissions; do not enable remote mode in an untrusted thread.
@@ -121,4 +125,4 @@ Bare `!compact` and `!compress` show usage instead of acting. They are session-d
 `!remote update` can replace even a manually chosen title; if generation fails, it refreshes the card with the existing title and status. Remote reload preserves discuss mode, as does terminal reload.
 
 The enabled state, root post ID, title, and status are stored for that Pi session, so reloads and tree navigation keep using the same thread while forks get their own.
-Mattermost replies are sent to Pi immediately when idle or as follow-ups when busy. `!queue` explicitly requests a follow-up, and `!steer` interrupts at the next steering boundary; either sends normally when idle. Both require a non-empty prompt. `!stop` and `!abort` match Escape in Pi: they abort current work and clear pending steering and follow-up messages (restoring them to the terminal editor as drafts). While remote mode is enabled, work started from either the terminal or Mattermost creates an activity post. Each bracketed update is appended on a new line by editing that same post, for example `[thinking…]`, `[reading src/index.ts]`, and `[responding…]`. Each completed assistant response finishes the current activity post with `[completed]` and is posted as a separate thread reply; a failed model response finishes it with `[failed]` instead. If the model continues working afterward, subsequent activity starts a new post so activity and responses remain in chronological order.
+Mattermost replies are sent to Pi immediately when idle or as follow-ups when busy. `!queue` explicitly requests a follow-up, and `!steer` interrupts at the next steering boundary; either sends normally when idle. Both require a non-empty prompt. `!stop` and `!abort` match Escape in Pi: they abort current work and clear pending steering and follow-up messages (restoring them to the terminal editor as drafts). While remote mode is enabled, work started from either the terminal or Mattermost creates an activity post. Each bracketed update is appended on a new line by editing that same post, for example `[thinking…]`, `[reading src/index.ts]`, and `[responding…]`. Bash and PowerShell updates include the complete command in a fenced code block; only commands too large for a Mattermost activity post receive clearly labelled size-limit truncation. Each completed assistant response finishes the current activity post with `[completed]` and is posted as a separate thread reply; a failed model response finishes it with `[failed]` instead. If the model continues working afterward, subsequent activity starts a new post so activity and responses remain in chronological order.

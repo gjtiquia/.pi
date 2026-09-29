@@ -27,6 +27,8 @@ export function registerSharedCommands(host: CommandHost, local: CommandDefiniti
  const tokens = () => tokenStatus(host.tokens());
  return [
   { name: "help", aliases: ["list", "ls"], usage: ["!help / !list / !ls — list all commands"], actions: {} },
+  { name: "status", sessionRequired: true, usage: ["!status — show live session activity diagnostics"],
+   actions: { "": { args: "none", run: () => host.status?.() ?? "Session status unavailable." } } },
   { name: "stop", aliases: ["abort"], sessionRequired: true, usage: STOP_USAGE, actions: {} },
   { name: "queue", sessionRequired: true, usage: QUEUE_USAGE, actions: {} },
   { name: "steer", sessionRequired: true, usage: STEER_USAGE, actions: {} },

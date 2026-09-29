@@ -44,7 +44,15 @@ export async function dispatchRemoteCommand(
 	};
 
 	const args = parts.slice(1);
-	if (args.length === 0 || (args.length === 1 && args[0] === "help")) return usageAndStatus();
+	if (args.length === 0) {
+		const defaultOperation = definition.actions[""];
+		if (defaultOperation?.args === "none") {
+			const response = await defaultOperation.run("");
+			return typeof response === "string" ? { handled: true, response } : { handled: true };
+		}
+		return usageAndStatus();
+	}
+	if (args.length === 1 && args[0] === "help") return usageAndStatus();
 
 	const action = Object.keys(definition.actions)
 		.sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length || b.length - a.length)

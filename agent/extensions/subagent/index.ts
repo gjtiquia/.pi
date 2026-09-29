@@ -287,8 +287,10 @@ function toolActivity(toolName: string, args: Record<string, unknown> | undefine
 
 	switch (toolName) {
 		case "bash":
-		case "powershell":
-			return `running ${stringArg("command") ?? toolName}`;
+		case "powershell": {
+			const command = typeof input.command === "string" ? input.command : undefined;
+			return `running ${command ?? toolName}`;
+		}
 		case "read":
 			return `reading ${stringArg("path") ?? "a file"}`;
 		case "write":
