@@ -1,3 +1,4 @@
+import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 const DISCUSS_MODE_STATE_TYPE = "discuss-mode-state";
@@ -80,6 +81,19 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 	pi.registerCommand("discuss", {
 		description: "Toggle discuss mode (exploration and analysis)",
 		handler: async (_args, ctx) => { restoreMode(ctx, "startup"); set(!enabled, ctx); },
+	});
+
+	pi.registerTool({
+		name: "discuss_mode_status",
+		label: "Discuss Mode Status",
+		description: "Get the current session's discuss-mode status without changing it.",
+		parameters: Type.Object({}),
+		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
+			return {
+				content: [{ type: "text", text: status(ctx) }],
+				details: { enabled },
+			};
+		},
 	});
 
 	pi.events.on(BIND_CHANNEL, (data) => {
