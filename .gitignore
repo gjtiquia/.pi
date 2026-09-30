@@ -9,5 +9,8 @@
 /agent/extensions/**/node_modules/
 /agent/extensions/**/.env
 /agent/mattermost/.env
+/agent/agentmail/.env
+/agent/mcp-auth.json
+/agent/mcp.log*
 agent/install
 agent/bin

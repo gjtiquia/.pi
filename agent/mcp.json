@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "agentmail": {
+      "url": "https://mcp.agentmail.to/mcp",
+      "headers": {
+        "x-api-key": "!node -e 'const fs = require(\"node:fs\"); const { parseEnv } = require(\"node:util\"); const path = require(\"node:path\"); const key = parseEnv(fs.readFileSync(path.join(require(\"node:os\").homedir(), \".pi/agent/agentmail/.env\"), \"utf8\")).AGENTMAIL_API_KEY; if (!key?.trim()) { console.error(\"Set AGENTMAIL_API_KEY in ~/.pi/agent/agentmail/.env\"); process.exit(1); } process.stdout.write(key.trim());'"
+      },
+      "exposure": "deferred"
+    }
+  }
+}
