@@ -6,10 +6,11 @@ A global Pi extension that relays one Mattermost thread to the current Pi sessio
 
 `shared/` is the canonical, copyable command implementation. Copy the **entire directory** (including `package.json` and tests) into the downstream `pi-personal` host; do not copy remote `index.ts` or implement a second parser. Internal imports never reach outside `shared/`.
 
+- `activity/`: transport-neutral run/tool tracking plus shared status and Mattermost activity formatting, including complete multiline Bash and PowerShell commands.
 - `core/`: generic routing, usage, aliases, and catalog rendering.
 - `standalone/`: Git and shell execution, plus read-only Linux RAM status. These need no live session. Shell intentionally depends on `@earendil-works/pi-coding-agent` for Pi shell settings/resolution; Git and RAM status use Node only.
 - `hosted/`: skill, model, agent delivery/abort, and token logic, operating on a structural session adapter (no ExtensionAPI dependency). Compaction also requires the live session adapter; it is not a standalone shell command.
-- Remote `index.ts`: builds the adapter, posts replies, handles unknown-command prompt fallback, and owns remote/reload/new/close, tmux, and thread cards. Discuss routing is shared; session state lives in the discuss-mode extension.
+- Remote `index.ts`: wires Pi lifecycle events into the shared activity tracker, builds the adapter, posts replies, handles unknown-command prompt fallback, and owns remote/reload/new/close, tmux, and thread cards. Discuss routing is shared; session state lives in the discuss-mode extension.
 
 ### Public interface (`shared/index.ts`)
 
@@ -21,7 +22,7 @@ registerSharedCommands(host: CommandHost, local?: CommandDefinition[]): CommandD
 
 Use `createCommandDispatcher` for **all** inbound commands; it preserves raw shell/skill/queue/steer payloads before generic action routing. `classifySharedCommand(input)` derives standalone versus session-dependent commands from that same catalog; mark new hosted definitions `sessionRequired: true` so downstream does not need a separate name list. `registerSharedCommands` composes catalog definitions only, for inspection/help integrations; it is not a replacement dispatcher. Local names/aliases must not collide with shared names. Shared catalog entries precede local entries. A handled result may have no response; only `{ handled: false }` should fall through to the host's ordinary prompt path. Transport posting/chunking and thrown-error reporting belong to the caller.
 
-Type exports: `CommandHost`, `CommandResult`, `CommandDefinition`, `ModelHost`, `ModelRef`, `Effort`, `TokenEntry`, `TokenUsage`, `TokenSnapshot`. The exact structural contract is in `shared/host.ts`:
+Type exports include the command host/catalog types plus `ActivitySnapshot`, `ActiveToolStatus`, `FormattedActivityUpdate`, and `StatusRenderOptions`. Runtime exports include `ActivityTracker`, `renderActivityStatus`, `formatCommandActivity`, `formatDuration`, and `markdownCodeBlock`. The exact command-host structural contract is in `shared/host.ts`:
 
 - `cwd: string`, `projectTrusted: boolean` are host-authorized execution context, not user input.
 - `isIdle()`, `hasPendingMessages()`, `abort()` (abort AND clear pending messages).

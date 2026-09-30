@@ -10,6 +10,21 @@ import type { CommandHost } from "./host.js";
 
 export type { CommandHost, ModelHost, ModelRef, Effort, TokenEntry, TokenUsage, TokenSnapshot } from "./host.js";
 export type { CommandDefinition } from "./core/command-router.js";
+export {
+ ActivityTracker,
+ formatCommandActivity,
+ formatDuration,
+ markdownCodeBlock,
+ renderActivityStatus,
+} from "./activity/status-tracker.js";
+export type {
+ ActiveToolStatus,
+ ActivityOutcome,
+ ActivitySnapshot,
+ FormattedActivityUpdate,
+ LastRunStatus,
+ StatusRenderOptions,
+} from "./activity/status-tracker.js";
 export interface CommandResult { handled: boolean; response?: string }
 
 /** Classify from the same catalog used to dispatch, so hosts need no command-name list. */

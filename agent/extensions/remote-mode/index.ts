@@ -8,7 +8,7 @@ import {
 	formatCommandActivity,
 	renderActivityStatus,
 	type FormattedActivityUpdate,
-} from "./status-tracker.js";
+} from "./shared/activity/status-tracker.js";
 import { closeCurrentTmuxWindow, launchOneShotTmuxWindow, launchRemoteTmuxWindow } from "./tmux-windows.js";
 import { loadMattermostEnv, readMattermostConfig } from "../../mattermost/config.js";
 
