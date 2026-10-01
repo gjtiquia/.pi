@@ -1,17 +1,25 @@
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { StringEnum, type Message } from "@earendil-works/pi-ai";
+import { getSupportedThinkingLevels, StringEnum, type Message } from "@earendil-works/pi-ai";
 import {
 	DEFAULT_MAX_BYTES,
 	DEFAULT_MAX_LINES,
 	type ExtensionAPI,
+	type ExtensionContext,
 	getAgentDir,
+	getPackageDir,
 	truncateHead,
 } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { MODEL_TIER_VALUES, resolveModelRoute, type ModelTier } from "../../preferences/model-tiers.ts";
+import {
+	MODEL_TIER_VALUES, THINKING_LEVEL_VALUES, MODEL_TIER_DESCRIPTION, MODEL_DESCRIPTION,
+	THINKING_LEVEL_DESCRIPTION, MODEL_SELECTION_DESCRIPTION, MODEL_SELECTION_GUIDANCE,
+	resolveModelSelection, type ModelTier, type ThinkingLevel,
+} from "../../preferences/model-tiers.ts";
+import { selectionForResume } from "./model-selection.ts";
+import { getPiInvocation } from "./invocation.ts";
 
 const SUBAGENT_SESSION_ROOT_ENV = "PI_SUBAGENT_SESSION_ROOT";
 const SUBAGENT_ROOT_SESSION_ID_ENV = "PI_SUBAGENT_ROOT_SESSION_ID";
@@ -47,22 +55,7 @@ interface DelegationMetadata extends DelegationAncestor {
 	modelTier?: ModelTier;
 	modelProvider?: string;
 	modelId?: string;
-}
-
-function getPiInvocation(args: string[]): { command: string; args: string[] } {
-	const currentScript = process.argv[1];
-	const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
-
-	if (currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
-		return { command: process.execPath, args: [currentScript, ...args] };
-	}
-
-	const executable = path.basename(process.execPath).toLowerCase();
-	if (!/^(node|bun)(\.exe)?$/.test(executable)) {
-		return { command: process.execPath, args };
-	}
-
-	return { command: "pi", args };
+	thinkingLevel?: ThinkingLevel;
 }
 
 function getText(message: Message): string {
@@ -154,7 +147,8 @@ function readDelegationMetadata(sessionRoot: string, sessionId: string): Delegat
 			typeof parsed.summary !== "string" ||
 			typeof parsed.sessionPath !== "string" ||
 			!Array.isArray(parsed.ancestry) ||
-			(parsed.modelTier !== undefined && !MODEL_TIER_VALUES.includes(parsed.modelTier)) ||
+			(parsed.modelTier !== undefined && typeof parsed.modelTier !== "string") ||
+			(parsed.thinkingLevel !== undefined && !THINKING_LEVEL_VALUES.includes(parsed.thinkingLevel)) ||
 			(parsed.modelProvider !== undefined && typeof parsed.modelProvider !== "string") ||
 			(parsed.modelId !== undefined && typeof parsed.modelId !== "string")
 		) return undefined;
@@ -236,10 +230,10 @@ type SubagentStatus = "running" | "completed";
 interface SubagentDetails {
 	summary: string;
 	task: string;
-	modelTier: ModelTier;
-	modelProvider?: string;
-	modelId?: string;
-	modelFallbackReason?: string;
+	modelTier?: ModelTier;
+	modelProvider: string;
+	modelId: string;
+	thinkingLevel: ThinkingLevel;
 	messages: Message[];
 	startedAt: number;
 	lastEventAt: number;
@@ -259,13 +253,8 @@ function formatSessionId(details: SubagentDetails, theme: { fg: (color: "muted",
 }
 
 function formatModel(details: SubagentDetails, theme: { fg: (color: "muted" | "warning", text: string) => string }): string {
-	const model = details.modelProvider && details.modelId
-		? `${details.modelProvider}/${details.modelId}`
-		: "default model";
-	const fallback = details.modelFallbackReason
-		? theme.fg("warning", ` (${details.modelTier} → inherit: ${details.modelFallbackReason})`)
-		: "";
-	return theme.fg("muted", `model: ${model}`) + fallback;
+	const model = `${details.modelProvider}/${details.modelId}`;
+	return theme.fg("muted", `model: ${model} · thinking: ${details.thinkingLevel}`);
 }
 
 function formatDuration(milliseconds: number): string {
@@ -404,22 +393,21 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 		name: "subagent",
 		label: "Subagent",
 		description:
-			`Delegate one strictly narrower task to a generic subagent in an isolated Pi process. Recursive delegation is available through depth ${MAX_SUBAGENT_DEPTH}; this session is at depth ${delegation.depth}. Choose a model tier for the task; tiers are resolved only within the active provider, while inherit uses the exact active model. The child inherits the thinking level, working directory, and active tools. Sessions are retained in one flat directory per root delegation tree. To continue a stopped session from this tree, provide its exact resumeSessionId. Give each call a concise summary for display. Multiple calls in one turn run in parallel; call subagent again after a result when later work depends on it.`,
+			`Delegate one strictly narrower task to a generic subagent in an isolated Pi process. Recursive delegation is available through depth ${MAX_SUBAGENT_DEPTH}; this session is at depth ${delegation.depth}. ${MODEL_SELECTION_DESCRIPTION} The child inherits the working directory and active tools, not model/thinking settings. Sessions are retained in one flat directory per root delegation tree. To continue a stopped session from this tree, provide its exact resumeSessionId and an explicit selection matching its saved model and thinking level. Give each call a concise summary for display. Multiple calls in one turn run in parallel; call subagent again after a result when later work depends on it.`,
 		promptSnippet: "Delegate a distinct, strictly narrower task to one generic isolated subagent",
 		promptGuidelines: [
 			delegationGuidance(delegation),
 			"For every subagent call, write summary as a concise one-line description of the distinct, strictly narrower work being delegated.",
-			"For every subagent call, choose modelTier deliberately: fast for mechanical lookup, narrow checks, and mechanical coding implementation when the specification is clearly defined; balanced for coding when the specification is incomplete or ambiguous, as well as normal review; deep for difficult architecture, debugging, or synthesis; and inherit when the parent's exact model is specifically appropriate. Model tiers never change providers.",
+			...MODEL_SELECTION_GUIDANCE,
 			"For every subagent call, deliberately choose stallTimeoutSeconds based on the longest legitimate period without JSON events expected for that task. Use longer timeouts for builds, tests, installations, or other potentially silent commands.",
 			"Use resumeSessionId only to continue a subagent that has already stopped. If that continuation fails, launch a fresh subagent and include the failed session path plus instructions to inspect the existing working tree. Avoid unlimited retry loops.",
 		],
 		parameters: Type.Object({
 			summary: Type.String({ description: "Concise one-line summary shown to the user" }),
 			task: Type.String({ description: "The complete task to delegate" }),
-			modelTier: StringEnum(MODEL_TIER_VALUES, {
-				description:
-					"Model tier within the active provider: fast for narrow or clearly specified mechanical implementation, balanced for coding with an incomplete or ambiguous specification and normal review, deep for difficult reasoning, or inherit for the exact active model.",
-			}),
+			modelTier: Type.Optional(StringEnum(MODEL_TIER_VALUES, { description: MODEL_TIER_DESCRIPTION })),
+			model: Type.Optional(Type.String({ description: MODEL_DESCRIPTION })),
+			thinkingLevel: StringEnum(THINKING_LEVEL_VALUES, { description: THINKING_LEVEL_DESCRIPTION }),
 			stallTimeoutSeconds: Type.Integer({
 				minimum: 25,
 				description:
@@ -433,7 +421,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			),
 		}),
 
-		async execute(_toolCallId, { summary, task, modelTier, stallTimeoutSeconds, resumeSessionId }, signal, onUpdate, ctx) {
+		async execute(_toolCallId, { summary, task, modelTier, model, thinkingLevel, stallTimeoutSeconds, resumeSessionId }, signal, onUpdate, ctx) {
 			if (!Number.isInteger(stallTimeoutSeconds) || stallTimeoutSeconds < 25) {
 				throw new Error("stallTimeoutSeconds must be an integer of at least 25 seconds");
 			}
@@ -462,14 +450,13 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 					summary: delegation.summary ? oneLine(delegation.summary) : "Root session",
 				},
 			];
-			const route = resumedMetadata?.modelProvider && resumedMetadata.modelId
-				? { provider: resumedMetadata.modelProvider, id: resumedMetadata.modelId }
-				: resolveModelRoute(
-					modelTier,
-					ctx.model,
-					(provider, id) => ctx.modelRegistry.find(provider, id) !== undefined,
-				);
-			const resolvedModelTier = resumedMetadata?.modelTier ?? modelTier;
+			const requestedSelection = { model, modelTier, thinkingLevel };
+			const selection = resumed ? selectionForResume(requestedSelection, resumedMetadata) : requestedSelection;
+			const route = resolveModelSelection(selection, ctx.model, (provider, id) => {
+				const selected = ctx.modelRegistry.getAvailable().find(candidate => candidate.provider === provider && candidate.id === id);
+				return selected ? getSupportedThinkingLevels(selected) : undefined;
+			});
+			const resolvedModelTier = resumed ? resumedMetadata?.modelTier : modelTier;
 
 			if (resumeSessionId && !childSessionPath) {
 				throw new Error(
@@ -485,10 +472,9 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			if (childSessionPath) args.push("--session", childSessionPath);
 			else args.push("--name", `subagent: ${oneLine(summary, 80)}`);
 
-			if (route.provider && route.id) args.push("--model", `${route.provider}/${route.id}`);
-			if (ctx.thinkingLevel) args.push("--thinking", ctx.thinkingLevel);
+			args.push("--model", `${route.provider}/${route.id}`, "--thinking", route.thinkingLevel);
 
-			const discussBinding: { handlers: { status(ctx: typeof ctx): string }[] } = { handlers: [] };
+			const discussBinding: { handlers: { status(ctx: ExtensionContext): string }[] } = { handlers: [] };
 			pi.events.emit("pi:discuss-mode:bind:v1", discussBinding);
 			const discussModeEnabled = discussBinding.handlers.length === 1
 				? discussBinding.handlers[0]!.status(ctx) === "Discuss mode: on"
@@ -502,7 +488,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 
 			args.push(task);
 
-			const invocation = getPiInvocation(args);
+			const invocation = getPiInvocation(args, getPackageDir());
 			const childEnvironment = {
 				...process.env,
 				[DISCUSS_MODE_ENV]: discussModeEnabled ? "1" : "0",
@@ -531,7 +517,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				modelTier: resolvedModelTier,
 				modelProvider: route.provider,
 				modelId: route.id,
-				modelFallbackReason: route.fallbackReason,
+				thinkingLevel: route.thinkingLevel,
 				messages: [...messages],
 				startedAt,
 				lastEventAt,
@@ -602,6 +588,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 										modelTier: resolvedModelTier,
 										modelProvider: route.provider,
 										modelId: route.id,
+										thinkingLevel: route.thinkingLevel,
 									});
 								} catch (error) {
 									stderr += `Failed to write subagent metadata: ${error instanceof Error ? error.message : String(error)}\n`;

@@ -1,0 +1,91 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, mock, test } from "bun:test";
+import type { ExtensionAPI, ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
+import type { Model } from "@earendil-works/pi-ai";
+import { MODEL_SELECTION_GUIDANCE } from "../../preferences/model-tiers.ts";
+
+const directory = await mkdtemp(join(tmpdir(), "subagent-selection-"));
+const cli = join(directory, "fake-cli.ts");
+await writeFile(cli, `
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+const args = process.argv.slice(2);
+const dir = args[args.indexOf("--session-dir") + 1];
+const id = "selection-child";
+const timestamp = "2026-10-01T00:00:00.000Z";
+mkdirSync(dir, { recursive: true });
+writeFileSync(join(dir, timestamp.replace(/[:.]/g, "-") + "_" + id + ".jsonl"), "{}\\n");
+console.log(JSON.stringify({ type: "session", id, timestamp }));
+console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{type: "text", text: JSON.stringify(args)}], stopReason: "stop" }}));
+`);
+// Only replace the process-invocation boundary: model resolution, child argv,
+// metadata persistence and the actual subprocess/event loop run unchanged.
+const { getPiInvocation: originalInvocation } = await import("./invocation.ts");
+mock.module("./invocation.ts", () => ({ getPiInvocation: (args: string[]) => ({ command: process.execPath, args: [cli, ...args] }) }));
+afterAll(() => { mock.module("./invocation.ts", () => ({ getPiInvocation: originalInvocation })); });
+const { default: register } = await import("./index.ts");
+let tool!: ToolDefinition<any, any>;
+register({ registerTool(value: ToolDefinition<any, any>) { tool = value; }, getActiveTools() { return ["read"]; }, events: { emit() {} } } as unknown as ExtensionAPI);
+const available = [
+  { provider: "openai-codex", id: "gpt-6-luna", reasoning: true, thinkingLevelMap: { off: "none", xhigh: "xhigh", max: "max" } },
+  { provider: "other", id: "plain", reasoning: false },
+] as Model<any>[];
+const ctx = {
+  cwd: directory,
+  model: { provider: "openai-codex", id: "parent" },
+  thinkingLevel: "low",
+  sessionManager: { getSessionId() { return "parent"; }, getSessionFile() { return join(directory, "parent.jsonl"); } },
+  modelRegistry: { getAvailable() { return available; } },
+} as unknown as ExtensionToolContext;
+const base = { summary: "Check settings", task: "Return arguments", stallTimeoutSeconds: 25 };
+const execute = (selection: Record<string, unknown>, context = ctx) => tool.execute("call", { ...base, ...selection }, undefined, undefined, context);
+
+test("tool schema requires thinking and consumes centralized guidance", () => {
+  const schema = tool.parameters as any;
+  assert.ok(schema.required.includes("thinkingLevel"));
+  assert.ok(!schema.required.includes("modelTier"));
+  assert.ok(schema.properties.model);
+  assert.ok(!JSON.stringify(schema.properties.modelTier).includes('"inherit"'));
+  for (const guidance of MODEL_SELECTION_GUIDANCE) assert.ok(tool.promptGuidelines?.includes(guidance));
+});
+
+test("invalid choices reject before invoking a child", async () => {
+  await assert.rejects(execute({ thinkingLevel: "max" }), /exactly one/);
+  await assert.rejects(execute({ modelTier: "fast" }), /explicit supported thinkingLevel/);
+  await assert.rejects(execute({ modelTier: "fast", model: "other/plain", thinkingLevel: "low" }), /exactly one/);
+  await assert.rejects(execute({ modelTier: "inherit", thinkingLevel: "high" }), /Unknown model tier/);
+  await assert.rejects(execute({ model: "other/missing", thinkingLevel: "low" }), /unavailable/);
+  await assert.rejects(execute({ model: "other/plain", thinkingLevel: "max" }), /does not support/);
+});
+
+test("child argv, details and metadata use explicit settings, not the parent's thinking", async () => {
+  const result = await execute({ modelTier: "fast", thinkingLevel: "max" });
+  const args = JSON.parse((result.content[0] as any).text);
+  assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-6-luna");
+  assert.equal(args[args.indexOf("--thinking") + 1], "max");
+  assert.equal(result.details.thinkingLevel, "max");
+  const metadata = JSON.parse(await readFile(join(directory, "subagent-sessions", "parent", ".metadata", "selection-child.json"), "utf8"));
+  assert.equal(metadata.modelId, "gpt-6-luna");
+  assert.equal(metadata.thinkingLevel, "max");
+  assert.equal(metadata.modelTier, "fast");
+});
+
+test("resume preserves the saved model/thinking even when the parent's provider changes", async () => {
+  const changedParent = { ...ctx, model: { provider: "opencode-go", id: "parent" }, thinkingLevel: "high" } as ExtensionToolContext;
+  const result = await execute({ modelTier: "fast", thinkingLevel: "max", resumeSessionId: "selection-child" }, changedParent);
+  const args = JSON.parse((result.content[0] as any).text);
+  assert.ok(args.includes("--session"));
+  assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-6-luna");
+  assert.equal(args[args.indexOf("--thinking") + 1], "max");
+  await assert.rejects(execute({ modelTier: "fast", thinkingLevel: "high", resumeSessionId: "selection-child" }), /must preserve/);
+});
+
+test("explicit model can cross providers without inheriting the parent", async () => {
+  const result = await execute({ model: "other/plain", thinkingLevel: "off" });
+  const args = JSON.parse((result.content[0] as any).text);
+  assert.equal(args[args.indexOf("--model") + 1], "other/plain");
+  assert.equal(args[args.indexOf("--thinking") + 1], "off");
+});

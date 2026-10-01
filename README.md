@@ -67,6 +67,14 @@ EXCALIDRAW_API_KEY=...
 
 restart pi or run `/reload`. The `list_excalidraw_scenes` tool lists or searches accessible scenes, and `read_excalidraw` loads one by ID, URL, or title and returns its rendered image, extracted text, and raw `.excalidraw` file.
 
+## model selection policy
+
+`agent/preferences/model-tiers.ts` owns the provider routes and model/thinking selection guidance shared by subagents and Gateway cron. Subagents require exactly one of `modelTier` (`fast`, `balanced`, `deep`) or `model` (`provider/model-id`), plus an explicit `thinkingLevel` supported by that model. There is no `inherit` tier, implicit thinking level, or silent fallback.
+
+For OpenAI Codex, `fast` routes to GPT-6 Luna, `balanced` to GPT-6.1 Sol, and `deep` to GPT-6 Astra. Select capability for ambiguity/judgment, and thinking independently for reasoning depth; Luna with `thinkingLevel: "max"` is a patient budget worker, not a fourth capability tier.
+
+Resuming a child requires an explicit selection matching its original model and thinking. The saved resolved model is pinned even if tier routes or the parent's provider change. Children with old metadata lacking explicit settings must be replaced with a fresh delegation. Run `/reload` or restart Pi to load extension changes.
+
 ## quick check
 
 ```bash
