@@ -6,9 +6,11 @@ import { createCommandDispatcher, type CommandDefinition, type CommandHost } fro
 import {
 	ActivityTracker,
 	formatCommandActivity,
+	formatSubagentActivity,
 	renderActivityStatus,
 	type FormattedActivityUpdate,
 } from "./shared/activity/status-tracker.js";
+import { ActivityPostBuffer } from "./shared/activity/post-buffer.js";
 import { closeCurrentTmuxWindow, launchOneShotTmuxWindow, launchRemoteTmuxWindow } from "./tmux-windows.js";
 import { loadMattermostEnv, readMattermostConfig } from "../../mattermost/config.js";
 
@@ -38,8 +40,6 @@ const lifecycleSignal = globalThis as typeof globalThis & {
 const STATUS_KEY = "remote-mode";
 const METADATA_TOOL_NAME = "remote_session_metadata";
 const RECONNECT_DELAY_MS = 5_000;
-const MAX_ACTIVITY_CHARS = 14_000;
-const MAX_ACTIVITY_COMMAND_CHARS = 13_000;
 const MAX_TITLE_CONTEXT_CHARS = 4_000;
 const TITLE_MODELS: Readonly<Record<string, readonly string[]>> = {
 	"openai-codex": ["gpt-5.3-codex-spark", "gpt-6-luna"],
@@ -82,7 +82,7 @@ interface MattermostEvent {
 interface ActivityRun {
 	active: boolean;
 	postId?: string;
-	lines: string[];
+	buffer: ActivityPostBuffer;
 	updates: Promise<void>;
 }
 
@@ -99,13 +99,13 @@ function oneLine(text: string, maxLength = 100): string {
 function toolActivity(toolName: string, args: Record<string, unknown> | undefined): string | FormattedActivityUpdate {
 	const input = args ?? {};
 	const stringArg = (name: string): string | undefined =>
-		typeof input[name] === "string" ? oneLine(input[name] as string, 80) : undefined;
+		typeof input[name] === "string" ? input[name] as string : undefined;
 
 	switch (toolName) {
 		case "bash":
 		case "powershell": {
 			const command = typeof input.command === "string" ? input.command : undefined;
-			return formatCommandActivity(toolName, command, MAX_ACTIVITY_COMMAND_CHARS);
+			return formatCommandActivity(toolName, command);
 		}
 		case "read":
 			return `reading ${stringArg("path") ?? "a file"}`;
@@ -123,10 +123,10 @@ function toolActivity(toolName: string, args: Record<string, unknown> | undefine
 			return "searching the web";
 		case "agent_browser":
 			return "using the browser";
-		case "subagent": {
-			const summary = stringArg("summary");
-			return summary ? `waiting for subagent — ${summary}` : "waiting for subagent";
-		}
+		case "subagent":
+			// The first partial result contains the confirmed model selection.
+			// Wait for it rather than posting a provisional tier preview.
+			return "";
 		default:
 			return `using ${toolName.replaceAll("_", " ")}`;
 	}
@@ -412,20 +412,6 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 			return run?.updates ?? Promise.resolve();
 		}
 		const line = typeof activity === "string" || !activity.formatted ? `[${typeof activity === "string" ? activity : activity.text}]` : activity.text;
-		if (line === run.lines.at(-1)) return run.updates;
-		run.lines.push(line);
-		let omitted = false;
-		while (run.lines.join("\n").length > MAX_ACTIVITY_CHARS && run.lines.length > 1) {
-			run.lines.shift();
-			omitted = true;
-		}
-		if (omitted) {
-			run.lines.unshift("[earlier activity omitted…]");
-			while (run.lines.join("\n").length > MAX_ACTIVITY_CHARS && run.lines.length > 2) {
-				run.lines.splice(1, 1);
-			}
-		}
-		const message = run.lines.join("\n");
 		const targetActivationId = activationId;
 
 		run.updates = run.updates
@@ -434,21 +420,22 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 				const rootId = await ensureRootPost(ctx);
 				if (!run.active || !activityRuns.has(run) || !enabled || activationId !== targetActivationId) return;
 
-				if (!run.postId) {
-					const post = await api<MattermostPost>("/posts", {
-						method: "POST",
-						body: JSON.stringify({ channel_id: config.channelId, root_id: rootId, message }),
-					});
-					if (run.active && activityRuns.has(run) && enabled && activationId === targetActivationId) {
-						run.postId = post.id;
+				for (const update of run.buffer.append(line)) {
+					if (!run.active || !activityRuns.has(run) || !enabled || activationId !== targetActivationId) return;
+					const message = update.message;
+					if (update.newPost || !run.postId) {
+						const post = await api<MattermostPost>("/posts", {
+							method: "POST",
+							body: JSON.stringify({ channel_id: config.channelId, root_id: rootId, message }),
+						});
+						if (run.active && activityRuns.has(run) && enabled && activationId === targetActivationId) run.postId = post.id;
+					} else {
+						await api<MattermostPost>(`/posts/${run.postId}/patch`, {
+							method: "PUT",
+							body: JSON.stringify({ message }),
+						});
 					}
-					return;
 				}
-
-				await api<MattermostPost>(`/posts/${run.postId}/patch`, {
-					method: "PUT",
-					body: JSON.stringify({ message }),
-				});
 			})
 			.catch((error) => {
 				if (run.active && activityRuns.has(run) && enabled && activationId === targetActivationId) {
@@ -467,7 +454,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	function startActivity(ctx: ExtensionContext): void {
 		if (!enabled || !config) return;
 		if (!activityRun) {
-			activityRun = { active: true, lines: [], updates: Promise.resolve() };
+			activityRun = { active: true, buffer: new ActivityPostBuffer(), updates: Promise.resolve() };
 			activityRuns.add(activityRun);
 		}
 		void updateActivity("thinking…", ctx);
@@ -1086,11 +1073,18 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	pi.on("tool_execution_start", (event, ctx) => {
 		activityTracker.startTool(event.toolCallId, event.toolName, event.args);
 		startActivity(ctx);
-		void updateActivity(toolActivity(event.toolName, event.args), ctx);
+		const activity = toolActivity(event.toolName, event.args);
+		if (activity) void updateActivity(activity, ctx);
 	});
 
-	pi.on("tool_execution_update", (event) => {
+	pi.on("tool_execution_update", (event, ctx) => {
+		const tool = activityTracker.snapshot().activeTools.find((tool) => tool.id === event.toolCallId);
 		activityTracker.updateTool(event.toolCallId, event.partialResult);
+		if (tool?.name === "subagent") {
+			const preview = formatSubagentActivity(tool.args, event.partialResult);
+			const previous = formatSubagentActivity(tool.args, tool.partialResult);
+			if (preview && preview !== previous) void updateActivity(preview, ctx);
+		}
 	});
 
 	pi.on("tool_execution_end", (event, ctx) => {

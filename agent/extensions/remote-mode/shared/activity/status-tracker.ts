@@ -134,12 +134,6 @@ function stringArg(args: Record<string, unknown> | undefined, name: string): str
 	return typeof value === "string" ? value : undefined;
 }
 
-function oneLine(text: string, maxLength = 120): string {
-	const normalized = text.replace(/\s+/g, " ").trim();
-	if (normalized.length <= maxLength) return normalized;
-	return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
-}
-
 export interface FormattedActivityUpdate {
 	text: string;
 	formatted: true;
@@ -154,18 +148,30 @@ export function markdownCodeBlock(text: string, language = ""): string {
 export function formatCommandActivity(
 	toolName: "bash" | "powershell",
 	command: string | undefined,
-	maxCommandChars = 13_000,
 ): FormattedActivityUpdate {
 	if (command === undefined) return { text: `[running ${toolName}]`, formatted: true };
-	const omitted = Math.max(0, command.length - maxCommandChars);
-	const displayed = omitted > 0 ? command.slice(0, maxCommandChars) : command;
-	const truncation = omitted > 0
-		? `\n[${omitted} command characters omitted only because Mattermost activity posts are size-limited]`
-		: "";
 	return {
-		text: `[running ${toolName}]\n${markdownCodeBlock(displayed, toolName === "bash" ? "sh" : "powershell")}${truncation}`,
+		text: `[running ${toolName}]\n${markdownCodeBlock(command, toolName === "bash" ? "sh" : "powershell")}`,
 		formatted: true,
 	};
+}
+
+function subagentSelection(partialResult?: unknown): string | undefined {
+	const partial = partialResult as { details?: unknown } | undefined;
+	const details = partial?.details;
+	const data = typeof details === "object" && details !== null ? details as Record<string, unknown> : undefined;
+	const provider = stringArg(data, "modelProvider");
+	const id = stringArg(data, "modelId");
+	const thinking = stringArg(data, "thinkingLevel");
+	if (!provider || !id || !thinking) return undefined;
+	return `${provider}/${id} · thinking: ${thinking}`;
+}
+
+export function formatSubagentActivity(args: Record<string, unknown> | undefined, partialResult?: unknown): string {
+	const selection = subagentSelection(partialResult);
+	if (!selection) return "";
+	const summary = stringArg(args, "summary");
+	return `waiting for subagent${summary ? ` — ${summary}` : ""} · model: ${selection}`;
 }
 
 function toolLabel(tool: ActiveToolStatus): string {
@@ -174,9 +180,9 @@ function toolLabel(tool: ActiveToolStatus): string {
 		case "read":
 		case "write":
 		case "edit":
-			return `${tool.name} — ${oneLine(stringArg(args, "path") ?? "a file")}`;
+			return `${tool.name} — ${stringArg(args, "path") ?? "a file"}`;
 		case "web_search":
-			return `web search — ${oneLine(stringArg(args, "query") ?? "multiple queries")}`;
+			return `web search — ${stringArg(args, "query") ?? "multiple queries"}`;
 		case "agent_browser":
 			return "browser";
 		default:
@@ -190,8 +196,10 @@ function subagentLines(tool: ActiveToolStatus, now: number): string[] | undefine
 	const details = partial?.details;
 	if (typeof details !== "object" || details === null) return;
 	const data = details as Record<string, unknown>;
-	const summary = typeof data.summary === "string" ? data.summary : stringArg(tool.args, "summary");
+	const summary = stringArg(tool.args, "summary") ?? stringArg(data, "summary");
 	const lines = [`Tool: subagent${summary ? ` — ${summary}` : ""} (${formatDuration(now - tool.startedAt)})`];
+	const selection = subagentSelection(tool.partialResult);
+	if (selection) lines.push(`Child model: ${selection}`);
 	if (typeof data.activity === "string") {
 		const activityStartedAt = typeof data.activityStartedAt === "number" ? data.activityStartedAt : tool.updatedAt;
 		lines.push(`Child activity (${formatDuration(now - activityStartedAt)}): ${data.activity}`);
