@@ -4,7 +4,7 @@ description: Shared vocabulary for designing deep modules. Use when the user wan
 license: MIT (see LICENSE)
 metadata:
   upstream-repository: https://github.com/mattpocock/skills
-  upstream-commit: c55ee46073ed923f86ce59a5eb3b6d895095d1b7
+  upstream-commit: 24fe0ef7737efae15c87225755e9f6f5965e4888
   upstream-path: skills/engineering/codebase-design
   adaptation: Pi-compatible matt-* naming
 ---

@@ -5,7 +5,7 @@ disable-model-invocation: true
 license: MIT (see LICENSE)
 metadata:
   upstream-repository: https://github.com/mattpocock/skills
-  upstream-commit: c55ee46073ed923f86ce59a5eb3b6d895095d1b7
+  upstream-commit: 24fe0ef7737efae15c87225755e9f6f5965e4888
   upstream-path: skills/engineering/triage
   adaptation: Pi-compatible matt-* naming
 ---
@@ -108,7 +108,7 @@ Show counts and a one-line summary per item. Let the maintainer pick.
 
 3. **Verify the claim.** Before any grilling, check that the claim holds up. For a bug, reproduce it from the reporter's steps. For a PR, confirm the diff does what it claims: check it out, run the relevant tests or commands. Report what happened: confirmed (with code path), failed, or insufficient detail (a strong `needs-info` signal). A confirmed verification makes a much stronger agent brief.
 
-4. **Grill (if needed).** If the request needs fleshing out, load and follow both `matt-grilling` and `matt-domain-modeling`, and grill it into shape a round of questions at a time, sharpening domain terms and updating `CONTEXT.md`/ADRs inline as decisions land.
+4. **Grill (if needed).** If the request needs fleshing out, load and follow both `matt-grilling` and `matt-domain-modeling`, and grill it into shape a round of questions at a time, sharpening domain terms and updating the resolved glossary/ADRs inline as decisions land. Follow [the glossary discovery policy](../matt-domain-modeling/GLOSSARY-COMPATIBILITY.md), including legacy fallback.
 
 5. **Apply the outcome:**
    - `ready-for-agent`: post an agent brief comment ([AGENT-BRIEF.md](AGENT-BRIEF.md)).

@@ -4,7 +4,7 @@ description: Test-driven development. Use when the user wants to build features 
 license: MIT (see LICENSE)
 metadata:
   upstream-repository: https://github.com/mattpocock/skills
-  upstream-commit: c55ee46073ed923f86ce59a5eb3b6d895095d1b7
+  upstream-commit: 24fe0ef7737efae15c87225755e9f6f5965e4888
   upstream-path: skills/engineering/tdd
   adaptation: Pi-compatible matt-* naming
 ---
@@ -13,7 +13,7 @@ metadata:
 
 TDD is the red → green loop. This skill is the reference that makes that loop produce tests worth keeping: what a good test is, where tests go, the anti-patterns, and the rules of the loop. Every section applies on every cycle: consult them before and during the loop, not after.
 
-When exploring the codebase, read `CONTEXT.md` (if it exists) so test names and interface vocabulary match the project's domain language, and respect ADRs in the area you're touching.
+When exploring the codebase, first read [the glossary discovery policy](../matt-domain-modeling/GLOSSARY-COMPATIBILITY.md), then the resolved glossary (if it exists) so test names and interface vocabulary match the project's domain language. Respect ADRs in the area you're touching.
 
 ## What a good test is
 
