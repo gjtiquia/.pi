@@ -60,7 +60,7 @@ If it is installed, ask exactly one question:
 
 > Do you want to keep the default triage labels? (recommended: **yes**)
 
-The defaults are category `bug` and `enhancement`; state `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `in-progress`, and `wontfix`; and priority `P0`, `P1`, `P2`, and `P3`. Each label string equals its role name. `in-progress` replaces a readiness state while work is active; priority is independent of state. On **yes**, write them as-is. Only if the user says no, usually because their tracker already uses other names (e.g. `bug:triage` for `needs-triage`), collect the overrides so `matt-triage` applies existing labels instead of creating duplicates.
+The defaults are category `bug` and `enhancement`; state `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `in-progress`, and `wontfix`; and priority `P0`, `P1`, `P2`, and `P3`. Each label string equals its role name. The [triage-labels template](./triage-labels.md) defines start/closure/release transitions and the requirement for exactly one priority on every open issue, including generated and Wayfinder issues; include those rules with the mapping. Priority is independent of state. On **yes**, write them as-is. Only if the user says no, usually because their tracker already uses other names (e.g. `bug:triage` for `needs-triage`), collect the overrides so `matt-triage` applies existing labels instead of creating duplicates.
 
 **Section C: Domain docs.** Default to **single-context** (one `CONTEXT.md` + `docs/adr/` at the repo root). This fits almost every repo; write it without asking.
 

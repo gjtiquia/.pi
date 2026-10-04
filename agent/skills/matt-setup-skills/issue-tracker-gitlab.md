@@ -9,7 +9,7 @@ Issues and specs for this repo live as GitLab issues. Use the [`glab`](https://g
 - **List issues**: `glab issue list -F json` with appropriate `--label` filters.
 - **Comment on an issue**: `glab issue note <number> --message "..."`. GitLab calls comments "notes".
 - **Apply / remove labels**: `glab issue update <number> --label "..."` / `--unlabel "..."`. Multiple labels can be comma-separated or by repeating the flag.
-- **Close**: `glab issue close <number>`. `glab issue close` does not accept a closing comment, so post the explanation first with `glab issue note <number> --message "..."`, then close.
+- **Close**: `glab issue close <number>`. `glab issue close` does not accept a closing comment, so post the explanation first with `glab issue note <number> --message "..."`, then close. Remove the mapped `in-progress` label if present and verify the issue is closed and the label is absent; retain category and priority. Apply the same cleanup when observing automatic closure on merge.
 - **Merge requests**: GitLab calls PRs "merge requests". Use `glab mr create`, `glab mr view`, `glab mr note`, etc., the same shape as `gh pr ...` with `mr` in place of `pr` and `note`/`--message` in place of `comment`/`--body`.
 
 Infer the repo from `git remote -v`; `glab` does this automatically when run inside a clone.
@@ -28,7 +28,7 @@ Unlike GitHub, GitLab numbers issues and MRs separately, so `#42` is unambiguous
 
 ## When a skill says "publish to the issue tracker"
 
-Create a GitLab issue.
+Create a GitLab issue with exactly one priority label chosen through `triage-labels.md` (including Wayfinder maps/children). Verify the published issue's labels.
 
 ## When a skill says "fetch the relevant ticket"
 
@@ -43,4 +43,4 @@ Used by `/skill:matt-wayfinder`. The **map** is a single issue with **child** is
 - **Blocking**: GitLab's **native blocking link**, the canonical, UI-visible representation. Add it with the `/blocked_by #<n>` quick action, posted as a note (`glab issue note <child> --message "/blocked_by #<blocker>"`). Native blocking links are a Premium/Ultimate feature; on the free tier (or where unavailable) fall back to a `Blocked by: #<n>, #<n>` line at the top of the description. A ticket is unblocked when every blocker is closed.
 - **Frontier query**: `glab issue list -F json` scoped to the map's children, drop any with an open blocker: a native `blocked_by` link to an open issue (`glab api projects/:id/issues/:iid/links`), or an open issue in the `Blocked by` line, or an assignee; first in map order wins.
 - **Claim**: `glab issue update <n> --assignee @me`, the session's first write.
-- **Resolve**: `glab issue note <n> --message "<answer>"`, then `glab issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+- **Resolve**: `glab issue note <n> --message "<answer>"`, then `glab issue close <n>`, apply the closure cleanup above, then append a context pointer (gist + link) to the map's Decisions-so-far.

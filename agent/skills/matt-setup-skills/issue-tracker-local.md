@@ -7,12 +7,13 @@ Issues and specs for this repo live as markdown files in `.scratch/`.
 - One feature per directory: `.scratch/<feature-slug>/`
 - The spec is `.scratch/<feature-slug>/spec.md`
 - Implementation issues are one file per ticket at `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01`, never a single combined tickets file
-- Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings)
+- Triage state is recorded as a `Status:` line near the top of each issue file (see `triage-labels.md` for the role strings). Implementation starts at `in-progress` and keeps that status while open. Closure sets `Status: closed` (or `resolved` for Wayfinder); abandonment/release restores readiness. Preserve category and priority.
+- Exactly one `Priority:` field records the mapped priority role on every open issue/spec/map, including Wayfinder decision/research tickets; see `triage-labels.md` for selection rules.
 - Comments and conversation history append to the bottom of the file under a `## Comments` heading
 
 ## When a skill says "publish to the issue tracker"
 
-Create a new file under `.scratch/<feature-slug>/` (creating the directory if needed).
+Create a new file under `.scratch/<feature-slug>/` (creating the directory if needed) with exactly one `Priority:` field. Verify the published status and priority.
 
 ## When a skill says "fetch the relevant ticket"
 

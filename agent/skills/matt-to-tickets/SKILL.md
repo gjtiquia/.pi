@@ -51,6 +51,7 @@ Present the proposed breakdown as a numbered list. For each ticket, show:
 
 - **Title**: short descriptive name
 - **Blocked by**: which other tickets (if any) must complete first
+- **Priority**: exactly one role chosen using the [priority policy](../matt-triage/SKILL.md#priority-extension), with a brief reason
 - **What it delivers**: the end-to-end behaviour this ticket makes work
 
 Ask the user:
@@ -63,7 +64,7 @@ Iterate until the user approves the breakdown.
 
 ### 5. Publish the tickets to the configured tracker
 
-Publish the approved tickets. **How** depends on the tracker `/skill:matt-setup-skills` configured; the tickets are the same either way, only the shape of the blocking edges changes:
+Publish the approved tickets with their approved priorities, and verify that every published ticket has exactly one mapped priority label or local `Priority:` field. **How** depends on the tracker `/skill:matt-setup-skills` configured; the tickets are the same either way, only the shape of the blocking edges changes:
 
 - **Local files** → write one file per ticket under `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01` in dependency order (blockers first). Each file's "Blocked by" lists the numbers/titles it depends on. Use the per-ticket file template below: one ticket per file, never a single combined file.
 - **A real issue tracker (GitHub, Linear, …)** → publish one issue per ticket in dependency order (blockers first) so each ticket's blocking edges can reference real identifiers. Use the platform's native blocking / sub-issue relationship where it has one; otherwise set each ticket's "Blocked by" to the blocking issues. Apply the `ready-for-agent` triage label unless instructed otherwise; the tickets are agent-grabbable by construction.
@@ -81,6 +82,8 @@ Do NOT close or modify any parent issue.
 **Blocked by:** The numbers/titles of the tickets that gate this one, or "None (can start immediately)".
 
 **Status:** ready-for-agent
+
+**Priority:** <approved P0/P1/P2/P3 role>
 
 - [ ] Acceptance criterion 1
 - [ ] Acceptance criterion 2

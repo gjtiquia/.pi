@@ -46,17 +46,17 @@ Five original **state** roles:
 
 This adaptation adds one **workflow-state extension**:
 
-- `in-progress`: implementation is actively underway
+- `in-progress`: implementation has started and the issue remains open
 
-`in-progress` extends rather than alters the original design. It replaces the previous state label while work is active; it is not an additive status label. Category and priority remain unchanged.
+`in-progress` replaces the previous readiness state; it is not an additive status label. Keep it while the issue is open, including after implementation finishes or a PR is opened. When the issue closes, remove `in-progress` without restoring readiness. If work is abandoned or released before closure, restore the appropriate readiness state. Preserve category and priority.
 
 For a PR, the same states read against the attached code: `ready-for-agent` means a brief is attached and an agent should take the next step on the diff; `ready-for-human` means it's ready for a human to merge; `in-progress` means someone is actively taking that next step.
 
-Every triaged issue should carry exactly one category role and exactly one state role, including the extension state. If state roles conflict, flag it and ask the maintainer before doing anything else.
+Every triaged open issue should carry exactly one category role and exactly one state role, including the extension state. Closed issues may have no state label after `in-progress` is removed. If state roles conflict, flag it and ask the maintainer before doing anything else.
 
 These are canonical role names. The actual label strings used in the issue tracker may differ. The mapping should have been provided to you. If not, tell the user to run `/skill:matt-setup-skills`.
 
-State transitions: an unlabeled issue normally goes to `needs-triage` first; from there it moves to `needs-info`, `ready-for-agent`, `ready-for-human`, or `wontfix`. `needs-info` returns to `needs-triage` once the reporter replies. Starting implementation moves `ready-for-agent` or `ready-for-human` to `in-progress`. If implementation is abandoned or released, restore the appropriate readiness state. The maintainer can override at any time; flag transitions that look unusual and ask before proceeding.
+State transitions: an unlabeled issue normally goes to `needs-triage` first; from there it moves to `needs-info`, `ready-for-agent`, `ready-for-human`, or `wontfix`. `needs-info` returns to `needs-triage` once the reporter replies. Starting implementation moves `ready-for-agent` or `ready-for-human` to `in-progress`; follow the closure and release rules above. The maintainer can override at any time; flag transitions that look unusual and ask before proceeding.
 
 ## Priority extension
 
@@ -69,7 +69,9 @@ Four **priority** roles:
 - `P2`: ordinary planned work that is clearly valuable and expected to be completed, but is neither urgent nor foundational. This is the default priority for well-formed work.
 - `P3`: optional backlog or nice-to-have work with no current expectation or dependency requiring completion.
 
-In addition to the original category and state requirements, every triaged open issue should carry exactly one priority role. This includes issues in `needs-triage` and `needs-info`; their priority is provisional and can change as facts emerge. Untriaged issues may remain unlabeled until their first triage pass. Closed historical issues do not need priorities backfilled. If priority roles conflict, flag it and ask the maintainer before doing anything else. Priority can change independently of state.
+Every open issue must carry exactly one priority role: existing and untriaged issues, generated specs and implementation tickets, and Wayfinder maps and decision/research tickets. Priorities in `needs-triage` or `needs-info` are provisional and can change as facts emerge. Closed historical issues do not need priorities backfilled. Preserve an existing single priority; if priority roles conflict, flag it and ask the maintainer before changing them. Priority can change independently of state.
+
+When publishing new issues, choose one priority using the definitions above (P2 by default), include it at creation, and verify it on the published issue. Do not infer P1 merely from a dependency edge; require concrete foundational or blocking impact. This priority assignment does not require retriaging already-specified work. For existing issues missing a priority, recommend one during the requested triage/backfill operation and obtain maintainer direction before applying it; an attention query reports gaps rather than silently changing the backlog.
 
 ## Invocation
 
@@ -86,11 +88,11 @@ The maintainer invokes `/skill:matt-triage` and describes what they want in natu
 
 Query the issue tracker and present three buckets, oldest first:
 
-1. **Unlabeled**: never triaged.
+1. **Untriaged**: no category/state assigned yet; a priority label alone does not count as triage.
 2. **`needs-triage`**: evaluation in progress.
 3. **`needs-info` with reporter activity since the last triage notes**: needs re-evaluation.
 
-As an additional priority check, also flag triaged open issues that are missing a priority, show each item's priority when present, and surface any P0 item prominently. This does not remove or reorder the original three attention buckets.
+As an additional priority check, also flag all open issues that are missing a priority (including untriaged and Wayfinder issues), show each item's priority when present, and surface any P0 item prominently. This does not remove or reorder the original three attention buckets.
 
 When PRs are in scope, include external PRs in these buckets and tag each line `[PR]` or `[issue]`. Discovery surfaces only *external* PRs (the tracker config defines who counts as external), so a collaborator's in-flight PR is not triage work. This filter is discovery-only; an explicitly named PR is always triaged regardless of author.
 
@@ -125,11 +127,11 @@ When applying any outcome to an open issue, also apply the approved priority and
 
 If the maintainer says "move #42 to ready-for-agent", trust them and apply the role directly. Confirm what you're about to do (role changes, comment, close), then act. Skip grilling. If moving to `ready-for-agent` without a grilling session, ask whether they want to write an agent brief.
 
-## Start or release work
+## Start, release, or close work
 
 If the maintainer says work is starting on an issue, trust them and replace `ready-for-agent` or `ready-for-human` with `in-progress`. Do not retain both labels. Assign the issue to the person doing the work when that identity is known and assignment is available.
 
-If active work is abandoned or released, remove `in-progress` and restore `ready-for-agent` or `ready-for-human`, according to who can take the next step. Preserve category and priority throughout.
+If active work is abandoned or released, follow the release rule under Roles. When closing an issue or observing that it has closed (including automatic closure on merge), apply the closure rule there and verify `in-progress` is absent. A commit, completed implementation, or opened PR alone is not closure. Report failed label cleanup rather than claiming the transition succeeded. Preserve category and priority throughout.
 
 ## Quick priority override
 

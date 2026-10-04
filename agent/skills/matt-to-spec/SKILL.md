@@ -24,7 +24,7 @@ The issue tracker and triage label vocabulary should have been provided to you. 
 
 Check with the user that these seams match their expectations.
 
-3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage.
+3. Write the spec using the template below, then publish it to the project issue tracker. Apply the `ready-for-agent` triage label - no need for additional triage. Read the [priority policy](../matt-triage/SKILL.md#priority-extension), choose exactly one priority, and include its mapped label at creation (or a `Priority:` field for a local spec). Verify readiness and priority on the published artifact.
 
 <spec-template>
 
