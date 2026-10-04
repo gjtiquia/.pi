@@ -16,7 +16,7 @@ export function selectionForResume(request: ModelSelection, saved: SavedModelSel
   }
   const model = `${saved.modelProvider}/${saved.modelId}`;
   const sameModelChoice = request.model === model || (saved.modelTier !== undefined && request.modelTier === saved.modelTier);
-  if (!sameModelChoice || request.thinkingLevel !== saved.thinkingLevel) {
+  if (!sameModelChoice || (request.model !== undefined && request.thinkingLevel !== saved.thinkingLevel)) {
     throw new Error(`Resume must preserve the child's model (${model}${saved.modelTier ? `; tier ${saved.modelTier}` : ""}) and thinkingLevel (${saved.thinkingLevel})`);
   }
   return { model, thinkingLevel: saved.thinkingLevel };

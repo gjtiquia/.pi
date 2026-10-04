@@ -393,7 +393,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 		name: "subagent",
 		label: "Subagent",
 		description:
-			`Delegate one strictly narrower task to a generic subagent in an isolated Pi process. Recursive delegation is available through depth ${MAX_SUBAGENT_DEPTH}; this session is at depth ${delegation.depth}. ${MODEL_SELECTION_DESCRIPTION} The child inherits the working directory and active tools, not model/thinking settings. Sessions are retained in one flat directory per root delegation tree. To continue a stopped session from this tree, provide its exact resumeSessionId and an explicit selection matching its saved model and thinking level. Give each call a concise summary for display. Multiple calls in one turn run in parallel; call subagent again after a result when later work depends on it.`,
+			`Delegate one strictly narrower task to a generic subagent in an isolated Pi process. Recursive delegation is available through depth ${MAX_SUBAGENT_DEPTH}; this session is at depth ${delegation.depth}. ${MODEL_SELECTION_DESCRIPTION} The child inherits the working directory and active tools, not model/thinking settings. Sessions are retained in one flat directory per root delegation tree. To continue a stopped session from this tree, provide its exact resumeSessionId and its original tier alone or an explicit model plus thinkingLevel matching its saved settings. Resuming a tier pins saved settings rather than re-routing the current preset. Give each call a concise summary for display. Multiple calls in one turn run in parallel; call subagent again after a result when later work depends on it.`,
 		promptSnippet: "Delegate a distinct, strictly narrower task to one generic isolated subagent",
 		promptGuidelines: [
 			delegationGuidance(delegation),
@@ -408,7 +408,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			task: Type.String({ description: "The complete task to delegate" }),
 			modelTier: Type.Optional(StringEnum(MODEL_TIER_VALUES, { description: MODEL_TIER_DESCRIPTION })),
 			model: Type.Optional(Type.String({ description: MODEL_DESCRIPTION })),
-			thinkingLevel: StringEnum(THINKING_LEVEL_VALUES, { description: THINKING_LEVEL_DESCRIPTION }),
+			thinkingLevel: Type.Optional(StringEnum(THINKING_LEVEL_VALUES, { description: THINKING_LEVEL_DESCRIPTION })),
 			stallTimeoutSeconds: Type.Integer({
 				minimum: 25,
 				description:

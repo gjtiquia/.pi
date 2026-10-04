@@ -69,11 +69,11 @@ restart pi or run `/reload`. The `list_excalidraw_scenes` tool lists or searches
 
 ## model selection policy
 
-`agent/preferences/model-tiers.ts` owns the provider routes and model/thinking selection guidance shared by subagents and Gateway cron. Subagents require exactly one of `modelTier` (`fast`, `balanced`, `deep`) or `model` (`provider/model-id`), plus an explicit `thinkingLevel` supported by that model. There is no `inherit` tier, implicit thinking level, or silent fallback.
+`agent/preferences/model-tiers.ts` owns the provider presets and selection guidance shared by subagents and Gateway cron. Choose either `modelTier` (`fast`, `balanced`, `deep`) alone, or `model` (`provider/model-id`) plus an explicit supported `thinkingLevel`. Supplying thinking with a tier is rejected. There is no `inherit` tier or silent fallback.
 
-For OpenAI Codex, `fast` routes to GPT-6 Luna, `balanced` to GPT-6.1 Sol, and `deep` to GPT-6 Astra. Select capability for ambiguity/judgment, and thinking independently for reasoning depth; Luna with `thinkingLevel: "max"` is a patient budget worker, not a fourth capability tier.
+For OpenAI Codex, `fast` bundles GPT-6 Luna medium, `balanced` bundles GPT-6 Luna max, and `deep` bundles GPT-6.1 Sol medium. Default to balanced for scoped work, fast for mechanical tasks, and deep only when the delegated task itself needs difficult judgment. Explicit model-plus-thinking overrides remain available, including Astra medium. Opencode Go retains its existing model routes, each with medium thinking.
 
-Resuming a child requires an explicit selection matching its original model and thinking. The saved resolved model is pinned even if tier routes or the parent's provider change. Children with old metadata lacking explicit settings must be replaced with a fresh delegation. Run `/reload` or restart Pi to load extension changes.
+Resuming a child requires its original tier alone or an explicit model-plus-thinking selection matching its saved settings. The saved resolved model and thinking are pinned even if tier presets or the parent's provider change. Children with old metadata lacking explicit settings must be replaced with a fresh delegation. Run `/reload` or restart Pi to load extension changes.
 
 ## quick check
 

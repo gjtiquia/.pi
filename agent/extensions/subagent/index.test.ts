@@ -31,6 +31,7 @@ let tool!: ToolDefinition<any, any>;
 register({ registerTool(value: ToolDefinition<any, any>) { tool = value; }, getActiveTools() { return ["read"]; }, events: { emit() {} } } as unknown as ExtensionAPI);
 const available = [
   { provider: "openai-codex", id: "gpt-6-luna", reasoning: true, thinkingLevelMap: { off: "none", xhigh: "xhigh", max: "max" } },
+  { provider: "openai-codex", id: "gpt-6.1-sol", reasoning: true },
   { provider: "other", id: "plain", reasoning: false },
 ] as Model<any>[];
 const ctx = {
@@ -43,9 +44,9 @@ const ctx = {
 const base = { summary: "Check settings", task: "Return arguments", stallTimeoutSeconds: 25 };
 const execute = (selection: Record<string, unknown>, context = ctx) => tool.execute("call", { ...base, ...selection }, undefined, undefined, context);
 
-test("tool schema requires thinking and consumes centralized guidance", () => {
+test("tool schema permits bundled presets and consumes centralized guidance", () => {
   const schema = tool.parameters as any;
-  assert.ok(schema.required.includes("thinkingLevel"));
+  assert.ok(!schema.required.includes("thinkingLevel"));
   assert.ok(!schema.required.includes("modelTier"));
   assert.ok(schema.properties.model);
   assert.ok(!JSON.stringify(schema.properties.modelTier).includes('"inherit"'));
@@ -69,7 +70,8 @@ test("delegation guidance bounds work without adding tool fields", () => {
 
 test("invalid choices reject before invoking a child", async () => {
   await assert.rejects(execute({ thinkingLevel: "max" }), /exactly one/);
-  await assert.rejects(execute({ modelTier: "fast" }), /explicit supported thinkingLevel/);
+  await assert.rejects(execute({ model: "other/plain" }), /explicit supported thinkingLevel/);
+  await assert.rejects(execute({ modelTier: "fast", thinkingLevel: "medium" }), /bundles thinkingLevel/);
   await assert.rejects(execute({ modelTier: "fast", model: "other/plain", thinkingLevel: "low" }), /exactly one/);
   await assert.rejects(execute({ modelTier: "inherit", thinkingLevel: "high" }), /Unknown model tier/);
   await assert.rejects(execute({ model: "other/missing", thinkingLevel: "low" }), /unavailable/);
@@ -77,7 +79,7 @@ test("invalid choices reject before invoking a child", async () => {
 });
 
 test("child argv, details and metadata use explicit settings, not the parent's thinking", async () => {
-  const result = await execute({ modelTier: "fast", thinkingLevel: "max" });
+  const result = await execute({ modelTier: "balanced" });
   const args = JSON.parse((result.content[0] as any).text);
   assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-6-luna");
   assert.equal(args[args.indexOf("--thinking") + 1], "max");
@@ -85,17 +87,27 @@ test("child argv, details and metadata use explicit settings, not the parent's t
   const metadata = JSON.parse(await readFile(join(directory, "subagent-sessions", "parent", ".metadata", "selection-child.json"), "utf8"));
   assert.equal(metadata.modelId, "gpt-6-luna");
   assert.equal(metadata.thinkingLevel, "max");
-  assert.equal(metadata.modelTier, "fast");
+  assert.equal(metadata.modelTier, "balanced");
 });
 
 test("resume preserves the saved model/thinking even when the parent's provider changes", async () => {
   const changedParent = { ...ctx, model: { provider: "opencode-go", id: "parent" }, thinkingLevel: "high" } as ExtensionToolContext;
-  const result = await execute({ modelTier: "fast", thinkingLevel: "max", resumeSessionId: "selection-child" }, changedParent);
+  const result = await execute({ modelTier: "balanced", resumeSessionId: "selection-child" }, changedParent);
   const args = JSON.parse((result.content[0] as any).text);
   assert.ok(args.includes("--session"));
   assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-6-luna");
   assert.equal(args[args.indexOf("--thinking") + 1], "max");
-  await assert.rejects(execute({ modelTier: "fast", thinkingLevel: "high", resumeSessionId: "selection-child" }), /must preserve/);
+  await assert.rejects(execute({ model: "openai-codex/gpt-6-luna", thinkingLevel: "high", resumeSessionId: "selection-child" }), /must preserve/);
+});
+
+test("fast and deep launch their bundled medium presets", async () => {
+  for (const [modelTier, modelId] of [["fast", "gpt-6-luna"], ["deep", "gpt-6.1-sol"]]) {
+    const result = await execute({ modelTier });
+    const args = JSON.parse((result.content[0] as any).text);
+    assert.equal(args[args.indexOf("--model") + 1], `openai-codex/${modelId}`);
+    assert.equal(args[args.indexOf("--thinking") + 1], "medium");
+    assert.equal(result.details.thinkingLevel, "medium");
+  }
 });
 
 test("explicit model can cross providers without inheriting the parent", async () => {
