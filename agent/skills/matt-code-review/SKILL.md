@@ -1,6 +1,6 @@
 ---
 name: matt-code-review
-description: "Review the changes since a fixed point (commit, branch, tag, or merge-base) along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
+description: "Review an explicit committed or working-tree scope along two axes: Standards (does the code follow this repo's documented coding standards?) and Spec (does the code match what the originating issue/spec asked for?). Runs both reviews in parallel sub-agents and reports them side by side. Use when the user wants to review a branch, a PR, work-in-progress changes, or asks to \"review since X\"."
 license: MIT (see LICENSE)
 metadata:
   upstream-repository: https://github.com/mattpocock/skills
@@ -9,24 +9,26 @@ metadata:
   adaptation: Pi-compatible matt-* naming
 ---
 
-Two-axis review of the diff between `HEAD` and a fixed point the user supplies:
+Two-axis review of a captured change scope:
 
 - **Standards**: does the code conform to this repo's documented coding standards?
 - **Spec**: does the code faithfully implement the originating issue / spec?
 
-Both axes run as **parallel sub-agents** so they don't pollute each other's context, then this skill aggregates their findings.
+The default **committed** scope preserves the existing review-since-a-fixed-point behavior. An explicit **working-tree** scope also covers staged and unstaged tracked changes plus the implementation's untracked files. Both axes receive the same frozen review inputs, run as parallel Pi subagents, and are awaited before aggregation.
 
 The issue tracker should have been provided to you. If `docs/agents/issue-tracker.md` is missing, tell the user to run `/skill:matt-setup-skills`.
 
 ## Process
 
-### 1. Pin the fixed point
+### 1. Pin the scope
 
-Whatever the user said is the fixed point (a commit SHA, branch name, tag, `main`, `HEAD~5`, etc.). If they didn't specify one, ask for it.
+Use the scope the caller explicitly requested. Ordinary branch/PR review and review-since-X keep the existing **committed** behavior; do not silently add working-tree changes. If no committed fixed point was supplied, ask for one.
 
-Capture the diff command once: `git diff <fixed-point>...HEAD` (three-dot, so the comparison is against the merge-base). Also note the list of commits via `git log <fixed-point>..HEAD --oneline`.
+For **committed** scope, resolve the fixed point (`git rev-parse <fixed-point>`), capture `git diff <fixed-point>...HEAD` (three-dot comparison against the merge-base) once, and capture `git log <fixed-point>..HEAD --oneline` once. Keep this recipe unchanged.
 
-Before going further, confirm the fixed point resolves (`git rev-parse <fixed-point>`) and the diff is non-empty. A bad ref or empty diff should fail here, not inside two parallel sub-agents.
+For **working-tree** scope, require the baseline commit and explicit untracked implementation-file list supplied by the caller (matt-implement records the baseline before work). Ask for either missing input. Resolve the baseline with `git rev-parse <baseline>`, then capture `git diff --binary --no-ext-diff <baseline>` once. This compares the baseline tree with the current working tree, covering commits since baseline and staged and unstaged changes to tracked files. Include the caller's starting-status snapshot in the packet and flag pre-existing tracked modifications as scope overlap; the baseline diff may not isolate their hunks from implementation changes. Inventory untracked paths with `git ls-files --others --exclude-standard -z`; include only the explicit list of untracked implementation files supplied by the caller. Capture each selected file as an added-file patch with `git diff --no-index --binary --no-ext-diff -- /dev/null <path>` (exit status 1 means the expected difference was produced), and freeze those patches alongside the tracked diff. Do not infer that every untracked file belongs to the change. Also capture `git log <baseline>..HEAD --oneline` once.
+
+Fail before dispatch if the ref is invalid or the selected scope is empty (for working-tree scope, check both the tracked diff and the included untracked files).
 
 ### 2. Identify the spec source
 
@@ -61,21 +63,21 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 - **Middle Man**: a class or function that mostly just delegates onward. → cut it, call the real target direct.
 - **Refused Bequest**: a subclass or implementer that ignores or overrides most of what it inherits. → drop the inheritance, use composition.
 
-### 4. Spawn both sub-agents in parallel
+### 4. Freeze inputs and spawn both sub-agents in parallel
+
+Before dispatch, freeze one shared review packet: the resolved scope/base and `HEAD`, caller's starting-status snapshot, captured commit list, exact tracked diff, and exact patches for included untracked files. Also capture the selected spec and standards-source contents. Send the identical shared packet to both axes, with the captured standards sources only to Standards and the captured spec only to Spec; do not ask agents to rerun Git commands or reread mutable inputs.
+
+Use the Pi `subagent` tool to start both axis reviews in parallel, then await both results before aggregating. If the spec is missing, skip the Spec sub-agent and note this in the final report.
 
 **Standards sub-agent prompt** should include:
 
-- The full diff command and commit list.
-- The list of standards-source files you found in step 3, **plus the smell baseline from step 3** pasted in full (the sub-agent has no other access to it).
+- The frozen review packet and the contents of each standards-source file found in step 3, **plus the smell baseline from step 3 pasted in full** (the sub-agent has no other access to it).
 - The brief: "Report, per file/hunk where relevant, (a) every place the diff violates a documented standard: cite the standard (file + the rule); and (b) any baseline smell you spot: name it and quote the hunk. Distinguish hard violations from judgement calls: documented-standard breaches can be hard, but baseline smells are always judgement calls, and a documented repo standard overrides the baseline. Skip anything tooling enforces. Under 400 words."
 
 **Spec sub-agent prompt** should include:
 
-- The diff command and commit list.
-- The path or fetched contents of the spec.
+- The same frozen review packet and the captured spec contents.
 - The brief: "Report: (a) requirements the spec asked for that are missing or partial; (b) behaviour in the diff that wasn't asked for (scope creep); (c) requirements that look implemented but where the implementation looks wrong. Quote the spec line for each finding. Under 400 words."
-
-If the spec is missing, skip the Spec sub-agent and note this in the final report.
 
 ### 5. Aggregate
 

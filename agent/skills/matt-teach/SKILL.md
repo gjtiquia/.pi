@@ -127,6 +127,8 @@ You should attempt to find high-reputation communities the user can join. If the
 
 ## Reference Documents
 
+Before authoring a lesson, exercise, learning record, or reference, read the workspace `GLOSSARY.md` if it exists and use it as the canonical vocabulary. If you create one, follow [GLOSSARY-FORMAT.md](./GLOSSARY-FORMAT.md).
+
 While creating lessons, you should also create reference documents. Lessons can reference these documents - they are useful for tracking raw units of knowledge useful across lessons.
 
 Lessons will rarely be revisited later - reference documents will be. They should be the compressed essence of the lesson, in a format designed for quick reference.

@@ -27,7 +27,8 @@ For repository workflows that use issue tracking or Wayfinder, recommend running
 - **Plan a huge, foggy, multi-session effort** → `/skill:matt-wayfinder`. Use only when the path to the destination cannot fit in one session; it maps decision tickets rather than implementation work.
 - **Answer a design question with something runnable or visible** → `/skill:matt-prototype`. Use for state/logic questions or several substantially different UI directions.
 - **Survey architectural friction** → `/skill:matt-improve-codebase-architecture`. It finds deepening opportunities, presents a visual report, and grills through the chosen candidate.
-- **Research facts from primary sources** → `/skill:matt-research`. It delegates reading and records cited findings in the repository.
+- **Research facts from primary sources** → `/skill:matt-research`. It uses an awaited Pi subagent and records cited findings in the repository.
+- **Retrospect a coding session for improvements to the agent's environment** → `/skill:matt-retro`. Use it to surface and rank improvements; it presents candidates rather than implementing them.
 - **Triage incoming issues or external pull requests** → `/skill:matt-triage`. It verifies claims, fills requirement gaps, and produces durable agent briefs with tracker states.
 - **Implement a spec or ticket** → `/skill:matt-implement`. It uses `matt-tdd` where possible, runs project checks, and closes with `matt-code-review`.
 - **Build one behavior test-first** → `/skill:matt-tdd`. Use for a direct red-green loop without the larger implementation wrapper.
@@ -67,6 +68,10 @@ Use `matt-grill-with-docs` when the idea can be understood in one session. Use `
 ### Wayfinder or to-tickets?
 
 Use `matt-wayfinder` when the route is still foggy and decisions remain. Use `matt-to-tickets` when the destination is already specified and only implementation slicing remains.
+
+### After Wayfinder reaches its destination
+
+When the map's destination is an implementation, hand the resolved decisions to `/skill:matt-to-spec` for a durable contract, then use `/skill:matt-to-tickets` if the work is too large for one implementation session, and execute those tickets with `/skill:matt-implement`. For a small spec, skip ticket-splitting and implement it directly.
 
 ### To-spec or to-tickets?
 
