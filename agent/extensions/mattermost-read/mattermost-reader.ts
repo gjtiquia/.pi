@@ -4,6 +4,8 @@ const POST_ID = /^[a-z0-9]{26}$/i;
 const MAX_POSTS = 500;
 const MAX_THREAD_CHARS = 150_000;
 const MAX_TEXT_CHARS = 100_000;
+const MAX_PDF_PAGES = 10;
+const MAX_PDF_TEXT_CHARS = 50_000;
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
@@ -59,7 +61,7 @@ export async function readMattermostLink(config: ReaderConfig, link: string, sig
  const id = postIdFromLink(link, config.url);
  const target = await json<Post>(config, `/posts/${id}`, signal);
  const root = target.root_id || target.id;
- // Mattermost's unpaginated thread response contains the root and all replies.
+ // The thread response may expose additional replies through has_next; retain that coverage signal.
  const thread = await json<PostList>(config, `/posts/${root}/thread`, signal);
  const posts = Object.values(thread.posts ?? {}).filter((post) => !post.delete_at);
  if (!posts.some((post) => post.id === target.id)) posts.push(target);
@@ -76,7 +78,12 @@ export async function readMattermostLink(config: ReaderConfig, link: string, sig
  }));
  let text = `Mattermost thread (${posts.length} posts; linked post: ${id}; root: ${root})\n`;
  const attachmentIds: string[] = [];
- let truncated = posts.length > selected.length || thread.has_next === true;
+ const incompleteReasons: string[] = [];
+ const hasMorePosts = thread.has_next === true;
+ if (posts.length > selected.length) incompleteReasons.push(`${MAX_POSTS}-post limit`);
+ if (hasMorePosts) incompleteReasons.push("Mattermost reported more posts than this response contains");
+ let postsIncluded = 0;
+ let outputLimitReached = false;
  for (const post of selected) {
   const postLink = `${config.url}/_redirect/pl/${post.id}`;
   const header = `\n[${new Date(post.create_at).toISOString()}] @${users.get(post.user_id) ?? post.user_id}${post.id === id ? " [linked post]" : ""} (post_id: ${post.id}; link: ${postLink})\n`;
@@ -87,13 +94,27 @@ export async function readMattermostLink(config: ReaderConfig, link: string, sig
   }
   if (text.length + block.length > MAX_THREAD_CHARS) {
    text += block.slice(0, Math.max(0, MAX_THREAD_CHARS - text.length));
-   truncated = true;
+   outputLimitReached = true;
+   incompleteReasons.push(`${MAX_THREAD_CHARS}-character output limit`);
    break;
   }
   text += block;
+  postsIncluded++;
  }
- if (truncated) text += "\n[Thread output truncated; not all posts or text shown.]";
- return { content: [{ type: "text", text }], details: { linkedPostId: id, rootPostId: root, postCount: posts.length, attachmentIds, truncated } };
+ const truncated = incompleteReasons.length > 0;
+ if (truncated) {
+  text += `\n[Thread coverage incomplete: ${incompleteReasons.join("; ")}. ${postsIncluded} posts are fully included; ${posts.length} non-deleted posts were loaded. Report this coverage as incomplete rather than treating the thread as exhaustively read.]`;
+ }
+ return {
+  content: [{ type: "text", text }],
+  details: {
+   linkedPostId: id, rootPostId: root, postCount: posts.length, attachmentIds, truncated,
+   coverage: {
+    complete: !truncated, postsLoaded: posts.length, postsIncluded, hasMorePosts,
+    maxPosts: MAX_POSTS, outputCharacterLimit: MAX_THREAD_CHARS, outputLimitReached,
+   },
+  },
+ };
 }
 
 async function boundedBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
@@ -149,8 +170,17 @@ export async function readMattermostAttachment(config: ReaderConfig, link: strin
    { type: "image", data: Buffer.from(data).toString("base64"), mimeType: detectedImage }], details };
  }
  if (data.slice(0, 5).every((byte, i) => byte === [37, 80, 68, 70, 45][i])) {
-  const pdf = await extractPdfText(data, { signal });
-  return { content: [{ type: "text", text: `Mattermost PDF attachment: ${info.name} (${fileId})\n${pdf.text}${pdf.truncated ? "\n[PDF text truncated]" : ""}` }], details: { ...details, pagesRead: pdf.pagesRead, totalPages: pdf.totalPages, truncated: pdf.truncated } };
+  const pdf = await extractPdfText(data, { maxPages: MAX_PDF_PAGES, maxChars: MAX_PDF_TEXT_CHARS, signal });
+  const coverageNotice = pdf.truncated
+   ? `\n[PDF text coverage incomplete: read ${pdf.pagesRead} of ${pdf.totalPages} pages; extraction is limited to ${MAX_PDF_PAGES} pages or ${MAX_PDF_TEXT_CHARS} characters.]`
+   : "";
+  return {
+   content: [{ type: "text", text: `Mattermost PDF attachment: ${info.name} (${fileId})\n${pdf.text}${coverageNotice}` }],
+   details: {
+    ...details, pagesRead: pdf.pagesRead, totalPages: pdf.totalPages, truncated: pdf.truncated,
+    coverage: { complete: !pdf.truncated, pagesRead: pdf.pagesRead, totalPages: pdf.totalPages, maxPages: MAX_PDF_PAGES, maxCharacters: MAX_PDF_TEXT_CHARS },
+   },
+  };
  }
  if (!textFile(info)) throw new Error(`Unsupported attachment type: ${info.mime_type || info.name} (supports text, PDF, PNG, JPEG, GIF, WebP)`);
  let text: string;

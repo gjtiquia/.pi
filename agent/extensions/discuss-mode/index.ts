@@ -59,7 +59,12 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 
 	pi.on("session_start", (event, ctx) => restoreMode(ctx, event.reason));
 	pi.on("session_tree", (_event, ctx) => restoreMode(ctx, "tree"));
-	pi.on("before_agent_start", (_event, ctx) => { restoreMode(ctx, "startup"); });
+	pi.on("before_agent_start", (event, ctx) => {
+		restoreMode(ctx, "startup");
+		// Prompt state follows the current branch, including inherited child sessions.
+		if (enabled) event.systemPromptOptions.sections.discuss_mode = DISCUSS_MODE_ACTIVE_MESSAGE;
+		else delete event.systemPromptOptions.sections.discuss_mode;
+	});
 
 	function set(on: boolean, ctx: ExtensionContext): string {
 		restoreMode(ctx, "startup");

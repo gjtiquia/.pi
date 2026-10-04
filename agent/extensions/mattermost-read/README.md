@@ -10,7 +10,7 @@ The bot must have read access to the linked post's channel and files. Nothing is
 
 ## Tools
 
-- `read_mattermost_link({ link })` reads the linked post and its full thread, with each post's permalink and attachment file IDs. Output is capped at 500 posts / 150,000 characters and explicitly marked if truncated.
-- `read_mattermost_attachment({ link, fileId })` reads a file from the **post containing it**. Text is UTF-8 (100,000 character output limit); PDFs are extracted in memory via `pdfjs-dist` (10 pages / 50,000 characters by default); PNG, JPEG, GIF, and WebP are returned as image content. Other files are rejected. Downloads are capped at 20 MiB, images at 10 MiB.
+- `read_mattermost_link({ link })` reads the linked post and thread content returned by Mattermost, with each post's permalink and attachment file IDs. Coverage is marked incomplete if the server reports more posts or the 500-post / 150,000-character cap omits content; result details expose loaded/included counts and limits.
+- `read_mattermost_attachment({ link, fileId })` reads a file from the **post containing it**. Text is UTF-8 (100,000 character output limit); PDFs are extracted in memory via `pdfjs-dist` (at most 10 pages / 50,000 characters) and report pages read versus total pages plus an incomplete-coverage marker when capped. PNG, JPEG, GIF, and WebP are returned as image content. Other files are rejected. Downloads are capped at 20 MiB, images at 10 MiB.
 
 Use the permalink and file ID shown for an attachment in the first tool's result.

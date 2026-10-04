@@ -14,9 +14,16 @@ function extension(){
 test('registers agreed tool inputs, output schema and ordinary-check guidance without changing bash',()=>{
  const {tools}=extension();assert.deepEqual([...tools.keys()],['remote_run','remote_run_init']);
  assert.deepEqual(Object.keys(tools.get('remote_run').parameters.properties).sort(),['args','cwd','timeoutSeconds']);
- assert.deepEqual(Object.keys(tools.get('remote_run_init').parameters.properties).sort(),['AfterCreateWorktreeCommand','BeforeJobCommand','cwd']);
+ const init=tools.get('remote_run_init');
+ assert.deepEqual(Object.keys(init.parameters.properties).sort(),['AfterCreateWorktreeCommand','BeforeJobCommand','cwd']);
+ assert.match(init.description,/at least one hook: AfterCreateWorktreeCommand or BeforeJobCommand/);
+ assert.match(init.description,/cwd selects the checkout/);
+ assert.match(init.parameters.properties.AfterCreateWorktreeCommand.description,/newly created worktree/);
+ assert.match(init.parameters.properties.BeforeJobCommand.description,/before the remote job/);
+ assert.match(init.parameters.properties.cwd.description,/checkout/);
  assert.ok(tools.get('remote_run').outputSchema);
- assert.match(tools.get('remote_run').promptGuidelines.join('\n'),/never auto-commit/);
+ assert.match(tools.get('remote_run').promptGuidelines.join('\n'),/For remote_run recovery, never automatically commit, push, retry, or fall back locally/);
+ assert.match(tools.get('remote_run').promptGuidelines.join('\n'),/A dirty\/unpushed checkout is an error/);
  const theme={fg:(_:string,text:string)=>text,bold:(text:string)=>text};
  const rendered=tools.get('remote_run').renderCall({args:['bun','run','test:e2e']},theme).render(100).join('\n');
  assert.match(rendered,/remote_run bun run test:e2e/);assert.ok(!rendered.includes('["bun"'));

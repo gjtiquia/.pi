@@ -35,8 +35,24 @@ test("errors do not echo server bodies, credentials, or network error details", 
 	await assert.rejects(readMessages(config, { messageId: "" }), /message ID/);
 });
 
-test("large email output is bounded", async () => {
+test("listing truncation identifies omitted messages and fields separately", async () => {
+	const result = await readMessages(config, { limit: 50 }, undefined, async () => Response.json({
+		messages: [{ id: "message", subject: "x".repeat(50000) }],
+		next_page_token: "next",
+	}));
+	assert.equal(result.details.truncated, true);
+	assert.equal(result.details.outputLimit, 30000);
+	assert.match(result.content[0].text, /Listing output truncated: only the first 30000 serialized characters/);
+	assert.match(result.content[0].text, /not all messages or fields are shown/);
+	assert.doesNotMatch(result.content[0].text, /Message output truncated/);
+});
+
+test("message truncation identifies the unavailable body remainder", async () => {
 	const result = await readMessages(config, { messageId: "message" }, undefined, async () => Response.json({ text: "x".repeat(50000) }));
-	assert.ok(result.content[0].text.length < 30200);
-	assert.match(result.content[0].text, /Truncated/);
+	assert.equal(result.details.truncated, true);
+	assert.equal(result.details.outputLimit, 30000);
+	assert.ok(result.content[0].text.length > 30000);
+	assert.match(result.content[0].text, /Message output truncated: only the first 30000 serialized characters/);
+	assert.match(result.content[0].text, /remaining body is not available in this result/);
+	assert.doesNotMatch(result.content[0].text, /Listing output truncated/);
 });

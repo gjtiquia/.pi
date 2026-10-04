@@ -21,9 +21,10 @@ export default function (pi:ExtensionAPI) {
  });
  pi.registerTool({
   name:'remote_run',label:'Remote run',
-  description:'Run an executable and literal arguments through the installed remote-run CLI using a clean, pushed Git checkout. Waits for completion. Use for heavy E2E tests/builds, not searches or tiny checks. Never commits, pushes, retries or falls back locally. Full output is saved to outputPath, not returned; use read on that file when needed, especially after failure. diagnosticsPath contains CLI errors. Requires local coordinator and remote-run on PATH; installs nothing.',
+  description:'Run an executable and literal arguments through the installed remote-run CLI using a clean, pushed Git checkout. Waits for completion. Use for heavy E2E tests/builds, not searches or tiny checks. Full output and CLI diagnostics are saved to the returned paths; the result contains status metadata and paths, not command output. Requires local coordinator and remote-run on PATH; installs nothing.',
   promptSnippet:'Offload heavy checks from clean, pushed Git source; wait and receive output file paths.',
-  promptGuidelines:['Use remote_run for ordinary heavy tests/builds without per-job confirmation. Destructive commands still require the user\'s explicit approval.','Dirty/unpushed checkout: report the error; never auto-commit, auto-push, or automatically rerun locally.','After remote_run failures, inspect diagnosticsPath/outputPath using read; command output is never included in the tool result.'],
+  promptGuidelines:['Use remote_run for ordinary heavy tests/builds without per-job confirmation. Destructive commands still require the user\'s explicit approval.','For remote_run recovery, never automatically commit, push, retry, or fall back locally. A dirty/unpushed checkout is an error; report it.','After failures, use read on outputPath and diagnosticsPath before reporting.'],
+
   parameters:Type.Object({args:Type.Array(Type.String(),{minItems:1,description:'Executable and literal arguments, e.g. ["bun","run","test:e2e"]. No shell parsing.'}),timeoutSeconds:Type.Optional(Type.Integer({minimum:1,default:1800,description:'Remote preparation/hooks/execution timeout; queue waiting is excluded.'})),cwd:Type.Optional(Type.String({description:'Local checkout directory, absolute or relative to Pi cwd; defaults to Pi cwd.'}))}),
   outputSchema:resultSchema,
   async execute(_id,params,signal,onUpdate,ctx){
@@ -51,8 +52,12 @@ export default function (pi:ExtensionAPI) {
  });
  pi.registerTool({
   name:'remote_run_init',label:'Initialize remote hooks',
-  description:'Create/update project-root .remote-runner.json with explicitly supplied hooks. Omitted hooks stay unchanged; empty string clears a hook. Preserves unrelated fields. Never executes hooks, infers commands, commits or pushes. The config must be committed and pushed before remote jobs can use it.',
-  parameters:Type.Object({cwd:Type.Optional(Type.String()),AfterCreateWorktreeCommand:Type.Optional(Type.String()),BeforeJobCommand:Type.Optional(Type.String())}),
+  description:'Create/update project-root .remote-runner.json by supplying at least one hook: AfterCreateWorktreeCommand or BeforeJobCommand. Optional cwd selects the checkout (defaults to Pi cwd). Omitted hooks stay unchanged; empty string clears a hook. Preserves unrelated fields. Never executes hooks, infers commands, commits or pushes. The config must be committed and pushed before remote jobs can use it.',
+  parameters:Type.Object({
+   cwd:Type.Optional(Type.String({description:'Local path to the checkout; defaults to Pi cwd.'})),
+   AfterCreateWorktreeCommand:Type.Optional(Type.String({description:'Command to configure a newly created worktree.'})),
+   BeforeJobCommand:Type.Optional(Type.String({description:'Command to run before the remote job.'})),
+  }),
   async execute(_id,params,_signal,_update,ctx){
    const result=await initProjectHooks(resolve(ctx.cwd,params.cwd??'.'),params);
    return {content:[{type:'text',text:JSON.stringify({...result,note:'No hooks executed. Commit and push this file yourself before remote jobs can use it.'},null,2)}],details:result};

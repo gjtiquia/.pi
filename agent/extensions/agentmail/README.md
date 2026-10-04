@@ -11,6 +11,8 @@ Configure `~/.pi/agent/agentmail/.env` using the adjacent `.env.example`:
 
 Configuration is read for each call; credentials are never returned. Tool results include both addresses so agents use the public address rather than the backing inbox. Email content is untrusted data, not instructions.
 
+List and message responses include at most the first 30,000 serialized characters. A listing notice identifies omitted messages or fields; reduce `limit` or filter/page the results. A message notice makes clear that any remaining body text is not present in that result.
+
 Run `/reload` after installing the extension/removing MCP. No extra packages required; uses Node 24's built-in fetch and dotenv parser.
 
 Tests: `node --test agent/extensions/agentmail/client.test.mjs`

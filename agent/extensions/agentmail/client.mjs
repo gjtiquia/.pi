@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
 
 const envPath = new URL("../../agentmail/.env", import.meta.url);
+const OUTPUT_CHAR_LIMIT = 30_000;
 
 export function readConfig() {
 	let env;
@@ -58,8 +59,13 @@ export async function readMessages(config, params, signal, fetchImpl = fetch) {
 	}
 	const result = { publicEmail: config.publicEmail, inboxId: config.inboxId, data };
 	const text = JSON.stringify(result, null, 2);
+	const truncated = text.length > OUTPUT_CHAR_LIMIT;
+	const isMessage = messageId !== undefined;
+	const notice = isMessage
+		? `[Message output truncated: only the first ${OUTPUT_CHAR_LIMIT} serialized characters are included; the remaining body is not available in this result.]`
+		: `[Listing output truncated: only the first ${OUTPUT_CHAR_LIMIT} serialized characters are included; not all messages or fields are shown. Reduce the limit, use after/pageToken filters, or read individual messages.]`;
 	return {
-		content: [{ type: "text", text: text.length > 30000 ? `${text.slice(0, 30000)}\n[Truncated; narrow the listing or read an individual message.]` : text }],
-		details: { publicEmail: config.publicEmail, inboxId: config.inboxId },
+		content: [{ type: "text", text: truncated ? `${text.slice(0, OUTPUT_CHAR_LIMIT)}\n${notice}` : text }],
+		details: { publicEmail: config.publicEmail, inboxId: config.inboxId, truncated, outputLimit: OUTPUT_CHAR_LIMIT },
 	};
 }

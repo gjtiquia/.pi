@@ -15,7 +15,7 @@ import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import {
 	MODEL_TIER_VALUES, THINKING_LEVEL_VALUES, MODEL_TIER_DESCRIPTION, MODEL_DESCRIPTION,
-	THINKING_LEVEL_DESCRIPTION, MODEL_SELECTION_DESCRIPTION, MODEL_SELECTION_GUIDANCE,
+	THINKING_LEVEL_DESCRIPTION, MODEL_SELECTION_GUIDANCE,
 	resolveModelSelection, type ModelTier, type ThinkingLevel,
 } from "../../preferences/model-tiers.ts";
 import { selectionForResume } from "./model-selection.ts";
@@ -66,14 +66,16 @@ function getText(message: Message): string {
 		.join("\n");
 }
 
-function truncateForModel(text: string): string {
-	const result = truncateHead(text, {
+function truncateForModel(text: string): { content: string; truncated: boolean } {
+	return truncateHead(text, {
 		maxBytes: DEFAULT_MAX_BYTES,
 		maxLines: DEFAULT_MAX_LINES,
 	});
+}
 
-	if (!result.truncated) return result.content;
-	return `${result.content}\n\n[Output truncated. Full output is preserved in the tool details.]`;
+function finalOutputPath(sessionDir: string, sessionId: string): string {
+	const safeId = sessionId.replace(/[^a-zA-Z0-9._-]/g, "_");
+	return path.join(sessionDir, `${safeId}.final-output.txt`);
 }
 
 function oneLine(text: string, maxLength = 120): string {
@@ -246,6 +248,7 @@ interface SubagentDetails {
 	childSessionPath?: string;
 	resumed: boolean;
 	output?: string;
+	finalOutputPath?: string;
 }
 
 function formatSessionId(details: SubagentDetails, theme: { fg: (color: "muted", text: string) => string }): string {
@@ -393,7 +396,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 		name: "subagent",
 		label: "Subagent",
 		description:
-			`Delegate one strictly narrower task to a generic subagent in an isolated Pi process. Recursive delegation is available through depth ${MAX_SUBAGENT_DEPTH}; this session is at depth ${delegation.depth}. ${MODEL_SELECTION_DESCRIPTION} The child inherits the working directory and active tools, not model/thinking settings. Sessions are retained in one flat directory per root delegation tree. To continue a stopped session from this tree, provide its exact resumeSessionId and its original tier alone or an explicit model plus thinkingLevel matching its saved settings. Resuming a tier pins saved settings rather than re-routing the current preset. Give each call a concise summary for display. Multiple calls in one turn run in parallel; call subagent again after a result when later work depends on it.`,
+			`Delegate one strictly narrower task to a generic subagent in an isolated Pi process. Recursive delegation is available through depth ${MAX_SUBAGENT_DEPTH}; this session is at depth ${delegation.depth}. The child inherits the working directory and active tools, not model/thinking settings. Sessions are retained in one flat directory per root delegation tree. To continue a stopped session from this tree, provide its exact resumeSessionId and its original tier alone or an explicit model plus thinkingLevel matching its saved settings. Resuming a tier pins saved settings rather than re-routing the current preset. Multiple calls in one turn run in parallel; call subagent again after a result when later work depends on it.`,
 		promptSnippet: "Delegate a distinct, strictly narrower task to one generic isolated subagent",
 		promptGuidelines: [
 			delegationGuidance(delegation),
@@ -512,7 +515,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			let stderr = "";
 			let stopReason: string | undefined;
 
-			const details = (output?: string): SubagentDetails => ({
+			const details = (output?: string, savedFinalOutputPath?: string): SubagentDetails => ({
 				summary: oneLine(summary),
 				task,
 				modelTier: resolvedModelTier,
@@ -531,6 +534,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				childSessionPath,
 				resumed,
 				output,
+				finalOutputPath: savedFinalOutputPath,
 			});
 			const emitUpdate = () =>
 				onUpdate?.({
@@ -687,9 +691,28 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 				status = "completed";
 				activity = "completed";
 				const output = finalOutput || "Subagent completed without a text response.";
+				const truncated = truncateForModel(output);
+				if (childSessionId && (!childSessionPath || !fs.existsSync(childSessionPath))) {
+					childSessionPath = findChildSessionPath(sessionDir, childSessionId) ?? childSessionPath;
+				}
+				let savedFinalOutputPath: string | undefined;
+				if (truncated.truncated) {
+					savedFinalOutputPath = finalOutputPath(sessionDir, childSessionId ?? _toolCallId);
+					fs.writeFileSync(savedFinalOutputPath, output, { encoding: "utf8", mode: 0o600 });
+				}
+				const recovery = [
+					`Child session ID: ${childSessionId ?? "unavailable"}`,
+					`Child session path: ${childSessionPath ?? "unavailable"}`,
+					...(savedFinalOutputPath ? [
+						`Output was truncated. Full final assistant response saved to ${savedFinalOutputPath}; use read on this file to inspect it.`,
+					] : []),
+				].join("\n");
 				return {
-					content: [{ type: "text", text: truncateForModel(output) }],
-					details: details(output),
+					content: [
+						{ type: "text", text: truncated.content },
+						{ type: "text", text: recovery },
+					],
+					details: details(output, savedFinalOutputPath),
 				};
 			} catch (error) {
 				finishedAt = Date.now();
@@ -767,9 +790,13 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 			const session = expanded && details.childSessionPath
 				? `\n${theme.fg("dim", `session: ${details.childSessionPath}`)}`
 				: "";
+			const finalOutput = details.finalOutputPath
+				? `\n${theme.fg("dim", `full response: ${details.finalOutputPath}`)}`
+				: "";
 			return new Text(
 				theme.fg("success", `✓ completed in ${elapsed}`) +
 					(output ? `\n${theme.fg("toolOutput", output)}` : "") +
+					finalOutput +
 					session +
 					`\n${formatSessionId(details, theme)}` +
 					`\n${formatModel(details, theme)}`,

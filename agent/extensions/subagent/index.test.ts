@@ -19,7 +19,8 @@ const timestamp = "2026-10-01T00:00:00.000Z";
 mkdirSync(dir, { recursive: true });
 writeFileSync(join(dir, timestamp.replace(/[:.]/g, "-") + "_" + id + ".jsonl"), "{}\\n");
 console.log(JSON.stringify({ type: "session", id, timestamp }));
-console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{type: "text", text: JSON.stringify(args)}], stopReason: "stop" }}));
+const response = args.at(-1) === "large-output" ? "x".repeat(120_000) : JSON.stringify(args);
+console.log(JSON.stringify({ type: "message_end", message: { role: "assistant", content: [{type: "text", text: response}], stopReason: "stop" }}));
 `);
 // Only replace the process-invocation boundary: model resolution, child argv,
 // metadata persistence and the actual subprocess/event loop run unchanged.
@@ -81,6 +82,8 @@ test("invalid choices reject before invoking a child", async () => {
 test("child argv, details and metadata use explicit settings, not the parent's thinking", async () => {
   const result = await execute({ modelTier: "balanced" });
   const args = JSON.parse((result.content[0] as any).text);
+  assert.match((result.content[1] as any).text, /Child session ID: selection-child/);
+  assert.match((result.content[1] as any).text, /Child session path: .*selection-child\.jsonl/);
   assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-6-luna");
   assert.equal(args[args.indexOf("--thinking") + 1], "high");
   assert.equal(result.details.thinkingLevel, "high");
@@ -98,6 +101,22 @@ test("resume preserves the saved model/thinking even when the parent's provider 
   assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-6-luna");
   assert.equal(args[args.indexOf("--thinking") + 1], "high");
   await assert.rejects(execute({ model: "openai-codex/gpt-6-luna", thinkingLevel: "max", resumeSessionId: "selection-child" }), /must preserve/);
+});
+
+test("truncated output points to a readable final-response artifact in a separate block", async () => {
+  const result = await execute({ task: "large-output", modelTier: "balanced" });
+  const outputBlock = result.content[0] as { type: string; text: string };
+  const contextBlock = result.content[1] as { type: string; text: string };
+  assert.equal(outputBlock.type, "text");
+  assert.equal(contextBlock.type, "text");
+  assert.ok(outputBlock.text.length < 120_000);
+  assert.doesNotMatch(outputBlock.text, /Child session ID/);
+  assert.match(contextBlock.text, /Child session ID: selection-child/);
+  assert.match(contextBlock.text, /Child session path: .*selection-child\.jsonl/);
+  const artifactPath = result.details.finalOutputPath;
+  assert.equal(typeof artifactPath, "string");
+  assert.ok(contextBlock.text.includes(`Full final assistant response saved to ${artifactPath}`));
+  assert.equal(await readFile(artifactPath, "utf8"), "x".repeat(120_000));
 });
 
 test("fast and deep launch their bundled thinking presets", async () => {
