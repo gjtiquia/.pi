@@ -6,6 +6,7 @@ import { createCommandDispatcher, type CommandDefinition, type CommandHost } fro
 import {
 	ActivityTracker,
 	formatCommandActivity,
+	formatRemoteRunActivity,
 	formatSubagentActivity,
 	renderActivityStatus,
 	type FormattedActivityUpdate,
@@ -123,6 +124,8 @@ function toolActivity(toolName: string, args: Record<string, unknown> | undefine
 			return "searching the web";
 		case "agent_browser":
 			return "using the browser";
+		case "remote_run":
+			return formatRemoteRunActivity(args);
 		case "subagent":
 			// The first partial result contains the confirmed model selection.
 			// Wait for it rather than posting a provisional tier preview.
@@ -1080,14 +1083,25 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	pi.on("tool_execution_update", (event, ctx) => {
 		const tool = activityTracker.snapshot().activeTools.find((tool) => tool.id === event.toolCallId);
 		activityTracker.updateTool(event.toolCallId, event.partialResult);
-		if (tool?.name === "subagent") {
-			const preview = formatSubagentActivity(tool.args, event.partialResult);
-			const previous = formatSubagentActivity(tool.args, tool.partialResult);
+		if (tool?.name === "subagent" || tool?.name === "remote_run") {
+			const format = tool.name === "remote_run" ? formatRemoteRunActivity : formatSubagentActivity;
+			const preview = format(tool.args, event.partialResult);
+			const previous = format(tool.args, tool.partialResult);
+			// Compare the exact observable preview, never the one-second UI clock.
 			if (preview && preview !== previous) void updateActivity(preview, ctx);
 		}
 	});
 
 	pi.on("tool_execution_end", (event, ctx) => {
+		const tool = activityTracker.snapshot().activeTools.find((tool) => tool.id === event.toolCallId);
+		if (event.toolName === "remote_run") {
+			// Preserve a confirmed final job outcome if Pi aborts/replaces the tool
+			// result with a generic error. Never turn observed cancellation into failure.
+			const finalResult = event.result.details != null ? event.result : tool?.partialResult;
+			const preview = formatRemoteRunActivity(tool?.args, finalResult, event.isError ? "failed" : "completed");
+			const previous = formatRemoteRunActivity(tool?.args, tool?.partialResult);
+			if (preview !== previous) void updateActivity(preview, ctx);
+		}
 		activityTracker.endTool(event.toolCallId, event.isError);
 		startActivity(ctx);
 		if (activityTracker.snapshot().activeTools.length === 0) void updateActivity("thinking…", ctx);

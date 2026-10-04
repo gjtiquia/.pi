@@ -1,3 +1,5 @@
+import { commandLine, safeLine, duration } from "../../../remote-run/display.ts";
+
 export type ActivityOutcome = "completed" | "aborted" | "error";
 
 export interface ActiveToolStatus {
@@ -174,6 +176,49 @@ export function formatSubagentActivity(args: Record<string, unknown> | undefined
 	return `waiting for subagent${summary ? ` — ${summary}` : ""} · model: ${selection}`;
 }
 
+function remoteRunDetails(result?: unknown): Record<string, unknown> | undefined {
+	if (typeof result !== "object" || result === null) return;
+	const details = (result as { details?: unknown }).details;
+	return typeof details === "object" && details !== null && !Array.isArray(details)
+		? details as Record<string, unknown> : undefined;
+}
+
+function remoteRunCommand(args: Record<string, unknown> | undefined, data?: Record<string, unknown>): string | undefined {
+	const command = stringArg(data, "command");
+	if (command) return safeLine(command);
+	const argv = args?.args;
+	if (Array.isArray(argv) && argv.length > 0 && argv.every(arg => typeof arg === "string")) {
+		return commandLine(argv);
+	}
+}
+
+export function formatRemoteRunActivity(
+	args: Record<string, unknown> | undefined,
+	result?: unknown,
+	fallbackOutcome?: "completed" | "failed",
+): string {
+	const data = remoteRunDetails(result);
+	const command = remoteRunCommand(args, data);
+	const status = stringArg(data, "status");
+	const final = status && status !== "running" ? status : fallbackOutcome;
+	const phase = final ?? stringArg(data, "phase") ?? "starting";
+	const parts = [`remote_run${command ? ` ${command}` : ""}`, safeLine(phase)];
+	const jobId = stringArg(data, "jobId");
+	const runner = stringArg(data, "runner");
+	if (jobId) parts.push(safeLine(jobId));
+	if (runner) parts.push(`runner: ${safeLine(runner)}`);
+	if (final) {
+		const exit = data?.exitCode;
+		parts.push(`exit: ${typeof exit === "number" && Number.isFinite(exit) ? exit : "unknown"}`);
+		const started = data?.startedAt;
+		const finished = data?.finishedAt;
+		if (typeof started === "number" && Number.isFinite(started) && typeof finished === "number" && Number.isFinite(finished)) {
+			parts.push(duration(finished - started));
+		}
+	}
+	return parts.join(" · ");
+}
+
 function toolLabel(tool: ActiveToolStatus): string {
 	const args = tool.args;
 	switch (tool.name) {
@@ -188,6 +233,20 @@ function toolLabel(tool: ActiveToolStatus): string {
 		default:
 			return tool.name.replaceAll("_", " ");
 	}
+}
+
+function remoteRunLines(tool: ActiveToolStatus, now: number): string[] | undefined {
+	if (tool.name !== "remote_run") return;
+	const data = remoteRunDetails(tool.partialResult);
+	const lines = [`Tool: remote_run (${formatDuration(now - tool.startedAt)})`];
+	const command = remoteRunCommand(tool.args, data);
+	if (command) lines.push(`Command: ${command}`);
+	lines.push(`Remote phase: ${safeLine(stringArg(data, "phase") ?? "starting")}`);
+	for (const [key, label] of [["jobId", "Job"], ["runner", "Runner"], ["outputPath", "Output"], ["diagnosticsPath", "Diagnostics"]]) {
+		const value = stringArg(data, key);
+		if (value) lines.push(`${label}: ${safeLine(value)}`);
+	}
+	return lines;
 }
 
 function subagentLines(tool: ActiveToolStatus, now: number): string[] | undefined {
@@ -246,9 +305,9 @@ export function renderActivityStatus(snapshot: ActivitySnapshot, options: Status
 	}
 
 	for (const tool of snapshot.activeTools) {
-		const subagent = subagentLines(tool, now);
-		if (subagent) {
-			lines.push(...subagent);
+		const detailed = remoteRunLines(tool, now) ?? subagentLines(tool, now);
+		if (detailed) {
+			lines.push(...detailed);
 			continue;
 		}
 		lines.push(`Tool: ${toolLabel(tool)} (${formatDuration(now - tool.startedAt)})`);

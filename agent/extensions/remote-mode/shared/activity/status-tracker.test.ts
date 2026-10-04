@@ -1,6 +1,56 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ActivityTracker, formatCommandActivity, formatSubagentActivity, renderActivityStatus } from "./status-tracker.js";
+import { ActivityTracker, formatCommandActivity, formatRemoteRunActivity, formatSubagentActivity, renderActivityStatus } from "./status-tracker.js";
+
+test("remote run activity shows shell-like commands and observable phases on one line", () => {
+	const args = { args: ["bun", "run", "test:e2e"] };
+	assert.equal(formatRemoteRunActivity(args), "remote_run bun run test:e2e · starting");
+	assert.equal(formatRemoteRunActivity(args, { details: { phase: "queued", jobId: "job-42" } }),
+		"remote_run bun run test:e2e · queued · job-42");
+	assert.equal(formatRemoteRunActivity(args, { details: { command: "bun run test:e2e", phase: "running", jobId: "job-42", runner: "worker-1" } }),
+		"remote_run bun run test:e2e · running · job-42 · runner: worker-1");
+	assert.equal(formatRemoteRunActivity({ args: ["printf", "hello world", "line\nend"] }, { details: { phase: "queued\nwait", runner: "worker\n1" } }),
+		`remote_run printf 'hello world' "line\\nend" · queued\\x0await · runner: worker\\x0a1`);
+	for (const partial of [undefined, null, 42, "bad", { details: null }, { details: [] }, { details: { phase: 3, command: {}, runner: [] } }]) {
+		assert.equal(formatRemoteRunActivity(args, partial), "remote_run bun run test:e2e · starting");
+	}
+	assert.equal(formatRemoteRunActivity({ args: ["bun", 42] }), "remote_run · starting");
+});
+
+test("remote run activity reports final outcome, exit and elapsed without a live clock", () => {
+	const args = { args: ["bun", "run", "test:e2e"] };
+	const details = { phase: "running", status: "running", jobId: "job-42", runner: "worker-1", startedAt: 1_000, phaseStartedAt: 2_000, lastProgressAt: 2_000, exitCode: null };
+	const tracker = new ActivityTracker(0);
+	tracker.startTool("remote", "remote_run", args, 1_000);
+	const updates: string[] = [];
+	for (let now = 2_000; now <= 5_000; now += 1_000) {
+		const previous = tracker.snapshot().activeTools[0];
+		const partial = { details: { ...details } };
+		tracker.updateTool("remote", partial, now);
+		const preview = formatRemoteRunActivity(args, partial);
+		if (preview !== formatRemoteRunActivity(args, previous.partialResult)) updates.push(preview);
+	}
+	assert.deepEqual(updates, ["remote_run bun run test:e2e · running · job-42 · runner: worker-1"]);
+	for (const [status, exit] of [["completed", 0], ["failed", 1], ["cancelled", null], ["cancellation_unconfirmed", null]] as const) {
+		assert.equal(formatRemoteRunActivity(args, { details: { ...details, status, phase: status, exitCode: exit, finishedAt: 66_000 } }),
+			`remote_run bun run test:e2e · ${status} · job-42 · runner: worker-1 · exit: ${exit ?? "unknown"} · 1m 5s`);
+	}
+	assert.equal(formatRemoteRunActivity(args, undefined, "failed"), "remote_run bun run test:e2e · failed · exit: unknown");
+});
+
+test("active remote run status exposes command, phase, job, runner and output", () => {
+	const tracker = new ActivityTracker(0);
+	tracker.start(1_000);
+	tracker.startTool("remote", "remote_run", { args: ["bun", "run", "test:e2e"] }, 2_000);
+	const render = (now: number) => renderActivityStatus(tracker.snapshot(), { idle: false, pendingMessages: false, now });
+	assert.match(render(3_000), /Tool: remote_run[\s\S]*Command: bun run test:e2e[\s\S]*Remote phase: starting/);
+	tracker.updateTool("remote", { details: { command: "bun run test:e2e", phase: "queued", jobId: "job-42", runner: "worker\n1", outputPath: "/tmp/output.log", diagnosticsPath: "/tmp/diagnostics.log" } }, 3_000);
+	assert.match(render(4_000), /Command: bun run test:e2e\nRemote phase: queued\nJob: job-42\nRunner: worker\\x0a1\nOutput: \/tmp\/output.log\nDiagnostics: \/tmp\/diagnostics.log/);
+	tracker.updateTool("remote", { details: null }, 5_000);
+	assert.match(render(6_000), /Command: bun run test:e2e[\s\S]*Remote phase: starting/);
+	tracker.endTool("remote", false, 7_000);
+	assert.doesNotMatch(render(8_000), /remote_run|output.log/);
+});
 
 test("tracks generic activity and parallel tools until settlement", () => {
 	const tracker = new ActivityTracker(0);
