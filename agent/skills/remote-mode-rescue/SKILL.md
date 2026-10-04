@@ -21,7 +21,7 @@ Restore access to an existing Pi session, not a fresh replacement conversation. 
 1. Read the supplied Mattermost permalink using `read_mattermost_link`.
 2. Identify the root thread and its session card: project, title, and exact Session ID. A reply permalink may point inside the thread; use the root's identity.
 3. Find the corresponding `.jsonl` under `~/.pi/agent/sessions/`. Prefer an exact session ID match and use the full file path when resuming.
-4. Verify the session header's ID and working directory. Where needed, inspect the remote-mode custom state for the original `rootPostId` and `sessionId`; inspect the installed extension to identify its current state format rather than assuming a fixed schema.
+4. Verify the session header's ID and working directory. Inspect remote-mode custom state for the original `rootPostId` and `sessionId`; inspect the installed extension to identify its current state format rather than assuming a fixed schema. Compare these with the root post ID from the supplied permalink and the session card. Stop on a mismatch. If either original-root linkage cannot be verified, carry that as unverified through the final report.
 5. If session identity, working directory, or destination tmux session is ambiguous, ask. Do not choose the newest session or infer identity solely from a window title.
 
 Read bounded excerpts, not entire large transcripts. Session filenames and process titles are lookup hints, not proof of a live owner.
@@ -45,7 +45,7 @@ tmux capture-pane -p -t '%PANE_ID' -S -40
 Match the displayed Session ID, not merely the project or title. Inspect the pane's process descendants and other Pi processes as needed; a session may run outside tmux. If an unaccounted-for Pi process could own the session, investigate locally before launching a duplicate. If ownership remains uncertain, stop and explain the uncertainty.
 
 - **Alive and connected:** the agent may be waiting for a tool, busy, or stalled. A missing reply is not proof of disconnection. Report what is observed; do not interrupt it.
-- **Alive but disconnected:** when the matching pane is ready to accept slash commands, use `/remote on`, then `/remote ping`.
+- **Alive but disconnected:** when the matching pane is ready to accept slash commands, use `/remote on` and verify connectivity. Before `/remote ping`, capture a baseline of the original root thread; afterward verify the new ping there as required in step 4.
 - **No live owner found:** restore from its saved session after confirming the correct tmux destination.
 
 Use `/remote on`, not bare `/remote`: bare `/remote` toggles and could disable a restored connection. If the installed extension differs, verify its command behavior first.
@@ -54,7 +54,7 @@ Use `/remote on`, not bare `/remote`: bare `/remote` toggles and could disable a
 
 Resolve the user's tmux session name exactly to its stable session ID. If it does not exist, ask before creating a replacement session unless the user already authorized that.
 
-Create a new detached, shell-backed window using the `tmux-operations` workflow. Record the returned window and pane IDs. Leave existing windows untouched.
+Create a new detached, shell-backed window using the explicitly requested Bash-backed variant in the `tmux-operations` workflow; leave that workflow's generic default unchanged. Record the returned window and pane IDs. Leave existing windows untouched.
 
 In the new shell pane, send a safely shell-quoted command using the verified working directory and saved session path:
 
@@ -64,25 +64,20 @@ cd '<verified working directory>' && pi --session '<exact saved .jsonl path>'
 
 Send literal input and Enter separately. Verify startup through a fresh capture before sending more commands. Do not assume a fixed sleep means startup succeeded.
 
-Confirm that the displayed Session ID matches the requested session, then send separately:
-
-```text
-/remote on
-/remote ping
-```
+Confirm that the displayed Session ID matches the requested session. Send `/remote on` first and verify connectivity. Before pinging, re-read the original root thread with `read_mattermost_link` and note its latest post as a baseline. Then send `/remote ping` separately.
 
 Resume errors or partial startup require inspection before retrying; do not create a series of speculative windows.
 
 ## 4. Verify and report
 
-Check for both:
+Verify these independently:
 
 - `remote: connected` for the correct Session ID.
-- `Ping sent to Mattermost`, or a newly observed ping in the original thread.
+- After `/remote ping`, a new ping is visible in a fresh `read_mattermost_link` result for the original root thread, compared with the pre-ping baseline. Verify that thread's root post ID matches the original root ID recorded during resolution. `Ping sent to Mattermost` in the pane alone does not prove delivery to the original thread.
 
-If the ping lands in a different/new thread, report that mismatch; do not claim the original thread was restored.
+If root linkage cannot be verified or the new ping is not observed in that exact thread, report the ping as **unverified**. If it appears in a different/new thread, report the mismatch; do not claim the original thread was restored.
 
-Report the destination tmux session/window, connectivity, and ping result. State that unfinished work needs a new instruction if relevant. Do not claim the agent is continuing work merely because its conversation was restored.
+Report the destination tmux session/window, connectivity, root linkage, and ping as verified or unverified. State that unfinished work needs a new instruction if relevant. Do not claim the agent is continuing work merely because its conversation was restored.
 
 ## 5. Optional read-only diagnosis
 

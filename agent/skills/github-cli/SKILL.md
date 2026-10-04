@@ -10,7 +10,9 @@ Use `gh` as the GitHub adapter. Keep workflow policy in the calling skill: this 
 
 ## Route the operation
 
-- Read, list, diff, check, create, edit, comment, label, assign, or close an issue or PR: read [references/items.md](references/items.md).
+- Read, list, diff, check, create, edit, comment, label, assign, close, or reopen an issue or PR: read [references/items.md](references/items.md).
+- Check out a PR: read [references/items.md](references/items.md) and follow its local-checkout safety step.
+- Merge a PR or submit a PR review: no recipe is provided; consult `gh pr merge --help` or `gh pr review --help` for current mechanics, then follow the calling workflow's approval rules.
 - Read or change sub-issues and blocking relationships: read [references/relationships.md](references/relationships.md).
 - Inspect images attached to an issue, PR, review, or comment: read [references/screenshots.md](references/screenshots.md) in addition to the item recipe.
 

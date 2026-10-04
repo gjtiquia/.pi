@@ -10,7 +10,7 @@ Use the small set of operations below as composable primitives. Perform no destr
 
 ## Safety and targeting
 
-- Allowed operations: list sessions, list windows, create a detached session, create a window, send literal text, and send Enter.
+- Allowed operations: list sessions, windows, and panes; capture pane output; create a detached session or window; send literal text; and send Enter.
 - Never attach, kill, rename, move, swap, join, break, unlink, respawn, or replace tmux resources. Never send control keys.
 - Never use `new-session -A`; it may attach to an existing session.
 - Prefer stable tmux IDs (`$1`, `@2`, `%3`) after discovery or creation. Quote every shell variable.
@@ -42,6 +42,24 @@ Fields: session ID, quoted session name, window ID, window index, quoted window 
 
 If no tmux server is running, treat that specific condition as an empty list.
 
+## List panes
+
+This is a read-only listing.
+
+```bash
+tmux list-panes -a -F $'#{session_id}\t#{q:session_name}\t#{window_id}\t#{q:window_name}\t#{pane_id}\t#{pane_pid}\t#{pane_current_command}'
+```
+
+Fields: session ID, quoted session name, window ID, quoted window name, pane ID, pane PID, and current command. If no tmux server is running, treat that specific condition as an empty list.
+
+## Capture pane output
+
+This is a read-only inspection. Keep the capture bounded to the output needed by the workflow; pane contents may be sensitive.
+
+```bash
+tmux capture-pane -p -t "$pane_id" -S -40
+```
+
 ## Create a detached session
 
 First reject an exact existing name:
@@ -69,11 +87,18 @@ Do not silently reuse an existing session if creation fails.
 Resolve the requested session to one exact session ID before creation. Prefer an ID obtained from `list-sessions`; do not guess from a partial name.
 
 ```bash
-tmux new-window -t "${session_id}:" -n "$window_name" -P \
+tmux new-window -d -t "${session_id}:" -n "$window_name" -P \
   -F $'#{window_id}\t#{window_index}\t#{q:window_name}\t#{pane_id}'
 ```
 
-Fields: window ID, window index, quoted window name, initial pane ID.
+Fields: window ID, window index, quoted window name, initial pane ID. `-d` prevents selecting the new window in attached clients.
+
+With no shell-command argument, tmux applies its configured default command/shell behavior. Keep that generic default. When the calling workflow explicitly requests an interactive Bash-backed pane, add `bash` as the shell-command argument:
+
+```bash
+tmux new-window -d -t "${session_id}:" -n "$window_name" -P \
+  -F $'#{window_id}\t#{window_index}\t#{q:window_name}\t#{pane_id}' bash
+```
 
 Use the returned pane ID for subsequent input.
 

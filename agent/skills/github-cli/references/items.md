@@ -15,18 +15,21 @@ Inside a checkout:
 gh repo view --json nameWithOwner,url
 ```
 
-For a GitHub URL, prefer passing the URL directly to `gh issue view` or `gh pr view`, then use the returned URL to establish repository and kind. For a bare number:
+For a GitHub URL, prefer passing the URL directly to `gh issue view` or `gh pr view`, then use the returned URL to establish repository and kind. For a bare number, use a private, operation-specific temporary file for the probe output and remove it automatically when this shell exits:
 
 ```bash
-if gh pr view "$ref" -R "$repo" --json number,url >/tmp/github-item.json 2>/dev/null; then
+item_file="$(mktemp "${TMPDIR:-/tmp}/github-item.XXXXXX")" || exit
+trap 'rm -f -- "$item_file"' EXIT
+
+if gh pr view "$ref" -R "$repo" --json number,url >"$item_file" 2>/dev/null; then
   kind=pr
 else
-  gh issue view "$ref" -R "$repo" --json number,url >/tmp/github-item.json
+  gh issue view "$ref" -R "$repo" --json number,url >"$item_file"
   kind=issue
 fi
 ```
 
-Do not retain `/tmp/github-item.json` after the operation.
+The unique `mktemp` path avoids collisions between concurrent operations; the exit trap cleans it up on success or failure.
 
 ## Read one item
 
