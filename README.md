@@ -84,6 +84,20 @@ npm ls --prefix ~/.pi/agent/extensions/notify --depth=0
 npm ls --prefix ~/.pi/agent/extensions/mattermost-read --depth=0
 ```
 
+## subagent tests
+
+From this repository root, with Bun and Pi installed:
+
+```bash
+node --test agent/preferences/model-tiers.test.ts \
+  agent/extensions/subagent/model-selection.test.ts \
+  agent/extensions/subagent/invocation.test.ts \
+  agent/extensions/subagent/test/runtime-paths.test.ts
+bun test agent/extensions/subagent/index.test.ts
+```
+
+The integration test aliases host imports to the real exports from the installed Pi runtime, including `pi-ai`'s compatibility entry, without installing another runtime copy. It uses the managed install's `current-version` (not a pinned release); `PI_MANAGED_INSTALL_ROOT` can select another managed installation. For a non-managed installation, set `PI_TEST_PACKAGE_DIR` to the installed `@earendil-works/pi-coding-agent` package directory. Missing or invalid installations fail explicitly. Bun is required for the integration test's module mocking; production extension loading is unchanged.
+
 ## notes
 
 - design skills and extensions as composable, single-purpose operations (Unix philosophy); avoid implicit side effects that perform a second action

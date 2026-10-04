@@ -1,3 +1,4 @@
+import { resolveHost } from "./test/preload.ts";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -44,6 +45,20 @@ const ctx = {
 } as unknown as ExtensionToolContext;
 const base = { summary: "Check settings", task: "Return arguments", stallTimeoutSeconds: 25 };
 const execute = (selection: Record<string, unknown>, context = ctx) => tool.execute("call", { ...base, ...selection }, undefined, undefined, context);
+
+test("test aliases expose the actual installed Pi exports", async () => {
+  for (const [specifier, symbol] of [
+    ["@earendil-works/pi-ai", "getSupportedThinkingLevels"],
+    ["@earendil-works/pi-coding-agent", "truncateHead"],
+    ["@earendil-works/pi-tui", "Text"],
+    ["typebox", "Type"],
+  ]) {
+    const aliased = await import(specifier);
+    const installed = await import(resolveHost(specifier));
+    assert.ok(installed[symbol]);
+    assert.equal(aliased[symbol], installed[symbol]);
+  }
+});
 
 test("tool schema permits bundled presets and consumes centralized guidance", () => {
   const schema = tool.parameters as any;
