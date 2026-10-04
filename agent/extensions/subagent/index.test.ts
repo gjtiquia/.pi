@@ -82,11 +82,11 @@ test("child argv, details and metadata use explicit settings, not the parent's t
   const result = await execute({ modelTier: "balanced" });
   const args = JSON.parse((result.content[0] as any).text);
   assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-6-luna");
-  assert.equal(args[args.indexOf("--thinking") + 1], "max");
-  assert.equal(result.details.thinkingLevel, "max");
+  assert.equal(args[args.indexOf("--thinking") + 1], "high");
+  assert.equal(result.details.thinkingLevel, "high");
   const metadata = JSON.parse(await readFile(join(directory, "subagent-sessions", "parent", ".metadata", "selection-child.json"), "utf8"));
   assert.equal(metadata.modelId, "gpt-6-luna");
-  assert.equal(metadata.thinkingLevel, "max");
+  assert.equal(metadata.thinkingLevel, "high");
   assert.equal(metadata.modelTier, "balanced");
 });
 
@@ -96,17 +96,17 @@ test("resume preserves the saved model/thinking even when the parent's provider 
   const args = JSON.parse((result.content[0] as any).text);
   assert.ok(args.includes("--session"));
   assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-6-luna");
-  assert.equal(args[args.indexOf("--thinking") + 1], "max");
-  await assert.rejects(execute({ model: "openai-codex/gpt-6-luna", thinkingLevel: "high", resumeSessionId: "selection-child" }), /must preserve/);
+  assert.equal(args[args.indexOf("--thinking") + 1], "high");
+  await assert.rejects(execute({ model: "openai-codex/gpt-6-luna", thinkingLevel: "max", resumeSessionId: "selection-child" }), /must preserve/);
 });
 
-test("fast and deep launch their bundled medium presets", async () => {
-  for (const [modelTier, modelId] of [["fast", "gpt-6-luna"], ["deep", "gpt-6.1-sol"]]) {
+test("fast and deep launch their bundled thinking presets", async () => {
+  for (const [modelTier, modelId, thinkingLevel] of [["fast", "gpt-6-luna", "medium"], ["deep", "gpt-6.1-sol", "high"]]) {
     const result = await execute({ modelTier });
     const args = JSON.parse((result.content[0] as any).text);
     assert.equal(args[args.indexOf("--model") + 1], `openai-codex/${modelId}`);
-    assert.equal(args[args.indexOf("--thinking") + 1], "medium");
-    assert.equal(result.details.thinkingLevel, "medium");
+    assert.equal(args[args.indexOf("--thinking") + 1], thinkingLevel);
+    assert.equal(result.details.thinkingLevel, thinkingLevel);
   }
 });
 

@@ -28,11 +28,11 @@ test("choose a tier alone or an explicit model plus thinking", () => {
   assert.doesNotThrow(() => validateModelSelection({ model: "other/vendor/model", thinkingLevel: "off" }));
 });
 
-test("Codex presets bundle Luna medium, Luna max, and Sol medium", () => {
+test("Codex presets bundle Luna medium, Luna high, and Sol high", () => {
   for (const [modelTier, id, thinkingLevel] of [
     ["fast", "gpt-6-luna", "medium"],
-    ["balanced", "gpt-6-luna", "max"],
-    ["deep", "gpt-6.1-sol", "medium"],
+    ["balanced", "gpt-6-luna", "high"],
+    ["deep", "gpt-6.1-sol", "high"],
   ] as const) {
     assert.deepEqual(resolveModelSelection({ modelTier }, active, supported),
       { provider: "openai-codex", id, thinkingLevel });
@@ -60,7 +60,7 @@ test("missing routes, unavailable models, and unsupported thinking never fall ba
   assert.throws(() => resolveModelSelection({ modelTier: "fast" }, { provider: "other", id: "parent" }, supported), /No fast route/);
   assert.throws(() => resolveModelSelection({ modelTier: "deep" }, active, () => undefined), /is unavailable/);
   assert.throws(() => resolveModelSelection({ model: "other/model", thinkingLevel: "high" }, active, () => undefined), /is unavailable/);
-  assert.throws(() => resolveModelSelection({ modelTier: "balanced" }, active, () => ["off", "low", "high", "xhigh"]), /does not support thinkingLevel max/);
+  assert.throws(() => resolveModelSelection({ modelTier: "balanced" }, active, () => ["off", "low", "medium", "xhigh"]), /does not support thinkingLevel high/);
   assert.throws(() => resolveModelSelection({ modelTier: "fast" }, active, () => ["low", "high"]), /does not support thinkingLevel medium/);
   assert.throws(() => resolveModelSelection({ model: "other/model", thinkingLevel: "off" }, active, () => ["medium"]), /does not support thinkingLevel off/);
   assert.throws(() => resolveModelSelection({ modelTier: "inherit" } as unknown as ModelSelection, active, supported), /Unknown model tier/);

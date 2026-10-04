@@ -3,8 +3,8 @@
 export const MODEL_TIERS = {
   "openai-codex": {
     fast: { id: "gpt-6-luna", thinkingLevel: "medium" },
-    balanced: { id: "gpt-6-luna", thinkingLevel: "max" },
-    deep: { id: "gpt-6.1-sol", thinkingLevel: "medium" },
+    balanced: { id: "gpt-6-luna", thinkingLevel: "high" },
+    deep: { id: "gpt-6.1-sol", thinkingLevel: "high" },
   },
   "opencode-go": {
     fast: { id: "deepseek-v4.1-flash", thinkingLevel: "medium" },
@@ -19,12 +19,12 @@ export type RoutedModelTier = ModelTier;
 export const THINKING_LEVEL_VALUES = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVEL_VALUES)[number];
 
-export const MODEL_TIER_DESCRIPTION = "Execution preset bundling model and thinking within the active provider. Codex: fast = Luna medium, balanced = Luna max, deep = Sol medium. Omit thinkingLevel with a tier. No inheritance or fallback.";
+export const MODEL_TIER_DESCRIPTION = "Execution preset bundling model and thinking within the active provider. Codex: fast = Luna medium, balanced = Luna high, deep = Sol high. Omit thinkingLevel with a tier. No inheritance or fallback.";
 export const MODEL_DESCRIPTION = "Explicit provider/model-id instead of modelTier; requires thinkingLevel and may select a different provider. Prefer tier presets unless a specific model/effort is needed.";
 export const THINKING_LEVEL_DESCRIPTION = "Required only with an explicit model; forbidden with modelTier, which bundles thinking. The selected model must support it. No inheritance or silent adjustment.";
 export const MODEL_SELECTION_GUIDANCE = [
   "Choose either modelTier alone (bundled model and thinking) or an explicit model plus thinkingLevel. Never supply thinkingLevel with modelTier. No inherit option or silent fallback. Tiers stay within the active provider; explicit provider/model-id can cross providers.",
-  "Default to balanced for scoped implementation and analysis. Use fast for mechanical lookup, edits, and bounded checks. Use deep only when the delegated task itself requires difficult judgment, ambiguous debugging, or architecture—not merely because the overall project is important. Codex presets: fast = Luna medium, balanced = Luna max, deep = Sol medium.",
+  "Default to balanced for scoped implementation and analysis. Use fast for mechanical lookup, edits, and bounded checks. Use deep only when the delegated task itself requires difficult judgment, ambiguous debugging, or architecture—not merely because the overall project is important. Codex presets: fast = Luna medium, balanced = Luna high, deep = Sol high.",
   "Delegation often isolates context rather than outsourcing harder judgment. Keep difficult orchestration decisions in the main session and give cheaper workers bounded assignments. Prefer presets; reserve explicit model plus thinkingLevel for user-requested selections or tasks that genuinely need a specific model/effort. More thinking does not make a cheaper model equivalent to a stronger one.",
 ] as const;
 export const MODEL_SELECTION_DESCRIPTION = MODEL_SELECTION_GUIDANCE.join(" ");
