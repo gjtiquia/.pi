@@ -397,6 +397,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 		promptSnippet: "Delegate a distinct, strictly narrower task to one generic isolated subagent",
 		promptGuidelines: [
 			delegationGuidance(delegation),
+			"Before delegating, state a bounded outcome and stopping condition in task. For coding tasks, explicitly assign verification ownership. As a child, report work beyond your assigned scope to the parent instead of expanding it. As a parent, coordinate combined checks to avoid duplicate verification and explain material scope expansion to the user before proceeding. Keep assignments proportional to the task.",
 			"For every subagent call, write summary as a concise one-line description of the distinct, strictly narrower work being delegated.",
 			...MODEL_SELECTION_GUIDANCE,
 			"For every subagent call, deliberately choose stallTimeoutSeconds based on the longest legitimate period without JSON events expected for that task. Use longer timeouts for builds, tests, installations, or other potentially silent commands.",

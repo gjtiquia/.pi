@@ -52,6 +52,21 @@ test("tool schema requires thinking and consumes centralized guidance", () => {
   for (const guidance of MODEL_SELECTION_GUIDANCE) assert.ok(tool.promptGuidelines?.includes(guidance));
 });
 
+test("delegation guidance bounds work without adding tool fields", () => {
+  const guidance = tool.promptGuidelines?.join("\n") ?? "";
+  for (const requirement of [
+    "bounded outcome and stopping condition in task",
+    "For coding tasks, explicitly assign verification ownership",
+    "report work beyond your assigned scope to the parent",
+    "coordinate combined checks to avoid duplicate verification",
+    "explain material scope expansion to the user before proceeding",
+  ]) assert.ok(guidance.includes(requirement));
+  assert.deepEqual(Object.keys((tool.parameters as any).properties).sort(), [
+    "model", "modelTier", "resumeSessionId", "stallTimeoutSeconds",
+    "summary", "task", "thinkingLevel",
+  ].sort());
+});
+
 test("invalid choices reject before invoking a child", async () => {
   await assert.rejects(execute({ thinkingLevel: "max" }), /exactly one/);
   await assert.rejects(execute({ modelTier: "fast" }), /explicit supported thinkingLevel/);
