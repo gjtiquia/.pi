@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  MODEL_TIER_VALUES, THINKING_LEVEL_VALUES, validateModelSelection,
+  MODEL_TIER_VALUES, THINKING_LEVEL_VALUES, MODEL_SELECTION_GUIDANCE, MODEL_SELECTION_DESCRIPTION, validateModelSelection,
   resolveModelSelection, type ModelSelection,
 } from "./model-tiers.ts";
 
@@ -26,6 +26,16 @@ test("choose a tier alone or an explicit model plus thinking", () => {
   ]) assert.throws(() => validateModelSelection(selection));
   for (const modelTier of MODEL_TIER_VALUES) assert.doesNotThrow(() => validateModelSelection({ modelTier }));
   assert.doesNotThrow(() => validateModelSelection({ model: "other/vendor/model", thinkingLevel: "off" }));
+});
+
+test("shared guidance defaults substantive reviews to deep, not mechanical checks", () => {
+  const reviewGuidance = MODEL_SELECTION_GUIDANCE.find((guidance) => guidance.startsWith("Default to deep for substantive reviews"));
+  assert.ok(reviewGuidance);
+  assert.match(reviewGuidance, /both Standards and Spec axes/);
+  assert.match(reviewGuidance, /narrow review scope does not justify a cheaper tier/);
+  assert.match(reviewGuidance, /deterministic|Mechanical/);
+  assert.match(reviewGuidance, /explicit user-requested model or tier override/);
+  assert.ok(MODEL_SELECTION_DESCRIPTION.includes(reviewGuidance));
 });
 
 test("Codex presets bundle Luna medium, Luna high, and Sol high", () => {

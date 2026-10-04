@@ -67,7 +67,7 @@ Each smell reads *what it is* → *how to fix*; match it against the diff:
 
 Before dispatch, freeze one shared review packet: the resolved scope/base and `HEAD`, caller's starting-status snapshot, captured commit list, exact tracked diff, and exact patches for included untracked files. Also capture the selected spec and standards-source contents. Send the identical shared packet to both axes, with the captured standards sources only to Standards and the captured spec only to Spec; do not ask agents to rerun Git commands or reread mutable inputs.
 
-Use the Pi `subagent` tool to start both axis reviews in parallel, then await both results before aggregating. If the spec is missing, skip the Spec sub-agent and note this in the final report.
+Use the Pi `subagent` tool to start both axis reviews in parallel with `modelTier: "deep"` by default, then await both results before aggregating. Both Standards and Spec require independent judgment even for a narrow diff; use a different model/tier only when the user explicitly requests it. Mechanical checks are separate from these reviews. If the spec is missing, skip the Spec sub-agent and note this in the final report.
 
 **Standards sub-agent prompt** should include:
 
