@@ -3,8 +3,6 @@
   "theme": "dark",
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-6.1-sol",
-  "tuiMode": "regular",
-  "hideThinkingBlock": false,
   "defaultTools": [
     "+codemode"
   ],
