@@ -21,6 +21,7 @@ export default function (pi:ExtensionAPI) {
  });
  pi.registerTool({
   name:'remote_run',label:'Remote run',
+  exposure:'model-only',
   description:'Run an executable and literal arguments through the installed remote-run CLI using a clean, pushed Git checkout. Waits for completion. Use for heavy E2E tests/builds, not searches or tiny checks. Full output and CLI diagnostics are saved to the returned paths; the result contains status metadata and paths, not command output. Requires local coordinator and remote-run on PATH; installs nothing.',
   promptSnippet:'Offload heavy checks from clean, pushed Git source; wait and receive output file paths.',
   promptGuidelines:['Use remote_run for ordinary heavy tests/builds without per-job confirmation. Destructive commands still require the user\'s explicit approval.','For remote_run recovery, never automatically commit, push, retry, or fall back locally. A dirty/unpushed checkout is an error; report it.','After failures, use read on outputPath and diagnosticsPath before reporting.'],
