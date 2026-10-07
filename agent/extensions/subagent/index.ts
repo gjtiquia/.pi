@@ -395,6 +395,7 @@ export default function minimalSubagent(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "subagent",
 		label: "Subagent",
+		exposure: "model-only",
 		description:
 			`Delegate one strictly narrower task to a generic subagent in an isolated Pi process. Recursive delegation is available through depth ${MAX_SUBAGENT_DEPTH}; this session is at depth ${delegation.depth}. The child inherits the working directory and active tools, not model/thinking settings. Sessions are retained in one flat directory per root delegation tree. To continue a stopped session from this tree, provide its exact resumeSessionId and its original tier alone or an explicit model plus thinkingLevel matching its saved settings. Resuming a tier pins saved settings rather than re-routing the current preset. Multiple calls in one turn run in parallel; call subagent again after a result when later work depends on it.`,
 		promptSnippet: "Delegate a distinct, strictly narrower task to one generic isolated subagent",
