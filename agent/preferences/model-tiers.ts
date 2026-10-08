@@ -3,7 +3,7 @@
 export const MODEL_TIERS = {
   "openai-codex": {
     fast: { id: "gpt-6-luna", thinkingLevel: "medium" },
-    balanced: { id: "gpt-6-luna", thinkingLevel: "high" },
+    balanced: { id: "gpt-6.1-sol", thinkingLevel: "medium" },
     deep: { id: "gpt-6.1-sol", thinkingLevel: "high" },
   },
   "opencode-go": {
