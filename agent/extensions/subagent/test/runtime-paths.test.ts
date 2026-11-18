@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -8,7 +8,7 @@ import { createPiRuntimeResolver, managedPiPackageDir } from "./runtime-paths.ts
 
 function fixture(run: (root: string) => void): void {
   const root = mkdtempSync(join(tmpdir(), "pi-runtime-paths-"));
-  try { run(root); } finally { rmSync(root, { recursive: true, force: true }); }
+  try { run(realpathSync(root)); } finally { rmSync(root, { recursive: true, force: true }); }
 }
 
 test("managed runtime uses the current version rather than a pinned release", () => fixture((root) => {

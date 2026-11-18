@@ -32,5 +32,5 @@ test("resuming rejects changed thinking, model, tier, and incomplete legacy meta
 
 test("a saved model that is now unavailable fails rather than re-routing the tier", () => {
   const selection = selectionForResume({ modelTier: "balanced" }, saved);
-  assert.throws(() => resolveModelSelection(selection, { provider: "openai-codex", id: "gpt-6.1-sol" }, () => undefined), /gpt-6-sol is unavailable/);
+  assert.throws(() => resolveModelSelection(selection, { provider: "openai-codex", id: "parent" }, () => undefined), /gpt-6-sol is unavailable/);
 });

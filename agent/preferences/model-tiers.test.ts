@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
-  MODEL_TIER_VALUES, THINKING_LEVEL_VALUES, MODEL_SELECTION_GUIDANCE, MODEL_SELECTION_DESCRIPTION, validateModelSelection,
+  MODEL_TIERS, MODEL_TIER_VALUES, THINKING_LEVEL_VALUES, MODEL_SELECTION_GUIDANCE, MODEL_SELECTION_DESCRIPTION, validateModelSelection,
   resolveModelSelection, type ModelSelection,
 } from "./model-tiers.ts";
 
@@ -38,31 +38,22 @@ test("shared guidance defaults substantive reviews to deep, not mechanical check
   assert.ok(MODEL_SELECTION_DESCRIPTION.includes(reviewGuidance));
 });
 
-test("Codex presets bundle Luna medium, Luna high, and Sol high", () => {
-  for (const [modelTier, id, thinkingLevel] of [
-    ["fast", "gpt-6-luna", "medium"],
-    ["balanced", "gpt-6-luna", "high"],
-    ["deep", "gpt-6.1-sol", "high"],
-  ] as const) {
-    assert.deepEqual(resolveModelSelection({ modelTier }, active, supported),
-      { provider: "openai-codex", id, thinkingLevel });
-  }
-});
-
-test("other provider presets retain their model routes with medium thinking", () => {
-  for (const [modelTier, id] of [
-    ["fast", "deepseek-v4.1-flash"], ["balanced", "glm-5.3-flash"], ["deep", "kimi-k3"],
-  ] as const) {
-    assert.deepEqual(resolveModelSelection({ modelTier }, { provider: "opencode-go", id: "parent" }, supported),
-      { provider: "opencode-go", id, thinkingLevel: "medium" });
+test("each tier selects its configured model and thinking within the active provider", () => {
+  for (const [provider, presets] of Object.entries(MODEL_TIERS)) {
+    for (const modelTier of MODEL_TIER_VALUES) {
+      const { id, thinkingLevel } = presets[modelTier];
+      assert.doesNotThrow(() => validateModelSelection({ model: `${provider}/${id}`, thinkingLevel }));
+      const supportedByPreset = (candidateProvider: string, candidateId: string) =>
+        candidateProvider === provider && candidateId === id ? [thinkingLevel] : undefined;
+      assert.deepEqual(resolveModelSelection({ modelTier }, { provider, id: "parent" }, supportedByPreset),
+        { provider, id, thinkingLevel });
+    }
   }
 });
 
 test("an explicit model crosses providers and does not require an active model", () => {
   assert.deepEqual(resolveModelSelection({ model: "other/vendor/model", thinkingLevel: "low" }, undefined, supported),
     { provider: "other", id: "vendor/model", thinkingLevel: "low" });
-  assert.deepEqual(resolveModelSelection({ model: "openai-codex/gpt-6-astra", thinkingLevel: "medium" }, undefined, supported),
-    { provider: "openai-codex", id: "gpt-6-astra", thinkingLevel: "medium" });
 });
 
 test("missing routes, unavailable models, and unsupported thinking never fall back", () => {
@@ -70,8 +61,10 @@ test("missing routes, unavailable models, and unsupported thinking never fall ba
   assert.throws(() => resolveModelSelection({ modelTier: "fast" }, { provider: "other", id: "parent" }, supported), /No fast route/);
   assert.throws(() => resolveModelSelection({ modelTier: "deep" }, active, () => undefined), /is unavailable/);
   assert.throws(() => resolveModelSelection({ model: "other/model", thinkingLevel: "high" }, active, () => undefined), /is unavailable/);
-  assert.throws(() => resolveModelSelection({ modelTier: "balanced" }, active, () => ["off", "low", "medium", "xhigh"]), /does not support thinkingLevel high/);
-  assert.throws(() => resolveModelSelection({ modelTier: "fast" }, active, () => ["low", "high"]), /does not support thinkingLevel medium/);
+  const { id, thinkingLevel } = MODEL_TIERS["openai-codex"].balanced;
+  const otherLevels = THINKING_LEVEL_VALUES.filter((level) => level !== thinkingLevel);
+  assert.throws(() => resolveModelSelection({ modelTier: "balanced" }, active, () => otherLevels),
+    { message: `openai-codex/${id} does not support thinkingLevel ${thinkingLevel}; supported: ${otherLevels.join(", ")}` });
   assert.throws(() => resolveModelSelection({ model: "other/model", thinkingLevel: "off" }, active, () => ["medium"]), /does not support thinkingLevel off/);
   assert.throws(() => resolveModelSelection({ modelTier: "inherit" } as unknown as ModelSelection, active, supported), /Unknown model tier/);
 });

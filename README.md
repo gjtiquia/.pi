@@ -69,11 +69,11 @@ restart pi or run `/reload`. The `list_excalidraw_scenes` tool lists or searches
 
 ## model selection policy
 
-`agent/preferences/model-tiers.ts` owns the provider presets and selection guidance shared by subagents and Gateway cron. Choose either `modelTier` (`fast`, `balanced`, `deep`) alone, or `model` (`provider/model-id`) plus an explicit supported `thinkingLevel`. Supplying thinking with a tier is rejected. There is no `inherit` tier or silent fallback.
+[`agent/preferences/model-tiers.ts`](agent/preferences/model-tiers.ts) is the source of truth for provider presets and selection guidance shared by subagents and Gateway cron. To change a tier, edit its `id` and `thinkingLevel` in `MODEL_TIERS`, then run `/reload` or restart Pi. The model must be available under that provider and support the chosen thinking level. Choose either `modelTier` (`fast`, `balanced`, `deep`) alone, or `model` (`provider/model-id`) plus an explicit supported `thinkingLevel`. Supplying thinking with a tier is rejected. There is no `inherit` tier or silent fallback.
 
-For OpenAI Codex, `fast` bundles GPT-6 Luna medium, `balanced` bundles GPT-6 Luna high, and `deep` bundles GPT-6.1 Sol high. Default to balanced for scoped implementation and non-review analysis, fast for mechanical tasks and deterministic checks, and deep for substantive reviews (including both Standards and Spec axes), difficult judgment, ambiguous debugging, and architecture. A narrow review scope is still deep by default; honor explicit user model/tier overrides. Explicit model-plus-thinking overrides remain available, including Astra medium. Opencode Go retains its existing model routes, each with medium thinking.
+Default to `balanced` for scoped implementation and non-review analysis, `fast` for mechanical tasks and deterministic checks, and `deep` for substantive reviews (including both Standards and Spec axes), difficult judgment, ambiguous debugging, and architecture. A narrow review scope is still `deep` by default; honor explicit user model/tier overrides.
 
-Resuming a child requires its original tier alone or an explicit model-plus-thinking selection matching its saved settings. The saved resolved model and thinking are pinned even if tier presets or the parent's provider change. Children with old metadata lacking explicit settings must be replaced with a fresh delegation. Run `/reload` or restart Pi to load extension changes.
+Resuming a child requires its original tier alone or an explicit model-plus-thinking selection matching its saved settings. The saved resolved model and thinking are pinned even if tier presets or the parent's provider change. Children with old metadata lacking explicit settings must be replaced with a fresh delegation.
 
 ## quick check
 

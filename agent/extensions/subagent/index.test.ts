@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { afterAll, mock, test } from "bun:test";
 import type { ExtensionAPI, ExtensionToolContext, ToolDefinition } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
-import { MODEL_SELECTION_GUIDANCE } from "../../preferences/model-tiers.ts";
+import { MODEL_TIERS, MODEL_TIER_DESCRIPTION, MODEL_SELECTION_GUIDANCE, THINKING_LEVEL_VALUES } from "../../preferences/model-tiers.ts";
 
 const directory = await mkdtemp(join(tmpdir(), "subagent-selection-"));
 const cli = join(directory, "fake-cli.ts");
@@ -31,15 +31,19 @@ afterAll(() => { mock.module("./invocation.ts", () => ({ getPiInvocation: origin
 const { default: register } = await import("./index.ts");
 let tool!: ToolDefinition<any, any>;
 register({ registerTool(value: ToolDefinition<any, any>) { tool = value; }, getActiveTools() { return ["read"]; }, events: { emit() {} } } as unknown as ExtensionAPI);
+const provider = "openai-codex";
+const presets = MODEL_TIERS[provider];
+// Synthetic catalog: launching a tier should work with any configured model and thinking level.
 const available = [
-  { provider: "openai-codex", id: "gpt-6-luna", reasoning: true, thinkingLevelMap: { off: "none", xhigh: "xhigh", max: "max" } },
-  { provider: "openai-codex", id: "gpt-6.1-sol", reasoning: true },
+  ...Array.from(new Set(Object.values(presets).map(({ id }) => id)), (id) => ({
+    provider, id, reasoning: true, thinkingLevelMap: { xhigh: "xhigh", max: "max" },
+  })),
   { provider: "other", id: "plain", reasoning: false },
 ] as Model<any>[];
 const ctx = {
   cwd: directory,
-  model: { provider: "openai-codex", id: "parent" },
-  thinkingLevel: "low",
+  model: { provider, id: "parent" },
+  thinkingLevel: THINKING_LEVEL_VALUES.find((level) => level !== presets.balanced.thinkingLevel),
   sessionManager: { getSessionId() { return "parent"; }, getSessionFile() { return join(directory, "parent.jsonl"); } },
   modelRegistry: { getAvailable() { return available; } },
 } as unknown as ExtensionToolContext;
@@ -66,6 +70,7 @@ test("tool schema permits bundled presets and consumes centralized guidance", ()
   assert.ok(!schema.required.includes("modelTier"));
   assert.ok(schema.properties.model);
   assert.ok(!JSON.stringify(schema.properties.modelTier).includes('"inherit"'));
+  assert.equal(schema.properties.modelTier.description, MODEL_TIER_DESCRIPTION);
   for (const guidance of MODEL_SELECTION_GUIDANCE) assert.ok(tool.promptGuidelines?.includes(guidance));
 });
 
@@ -94,28 +99,34 @@ test("invalid choices reject before invoking a child", async () => {
   await assert.rejects(execute({ model: "other/plain", thinkingLevel: "max" }), /does not support/);
 });
 
-test("child argv, details and metadata use explicit settings, not the parent's thinking", async () => {
+test("child argv, details and metadata use the balanced preset, not the parent's settings", async () => {
+  const { id, thinkingLevel } = presets.balanced;
   const result = await execute({ modelTier: "balanced" });
   const args = JSON.parse((result.content[0] as any).text);
   assert.match((result.content[1] as any).text, /Child session ID: selection-child/);
   assert.match((result.content[1] as any).text, /Child session path: .*selection-child\.jsonl/);
-  assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-6-luna");
-  assert.equal(args[args.indexOf("--thinking") + 1], "high");
-  assert.equal(result.details.thinkingLevel, "high");
+  assert.equal(args[args.indexOf("--model") + 1], `${provider}/${id}`);
+  assert.equal(args[args.indexOf("--thinking") + 1], thinkingLevel);
+  assert.equal(result.details.thinkingLevel, thinkingLevel);
   const metadata = JSON.parse(await readFile(join(directory, "subagent-sessions", "parent", ".metadata", "selection-child.json"), "utf8"));
-  assert.equal(metadata.modelId, "gpt-6-luna");
-  assert.equal(metadata.thinkingLevel, "high");
+  assert.equal(metadata.modelProvider, provider);
+  assert.equal(metadata.modelId, id);
+  assert.equal(metadata.thinkingLevel, thinkingLevel);
   assert.equal(metadata.modelTier, "balanced");
 });
 
 test("resume preserves the saved model/thinking even when the parent's provider changes", async () => {
-  const changedParent = { ...ctx, model: { provider: "opencode-go", id: "parent" }, thinkingLevel: "high" } as ExtensionToolContext;
-  const result = await execute({ modelTier: "balanced", resumeSessionId: "selection-child" }, changedParent);
+  const original = await execute({ modelTier: "balanced" });
+  const { modelProvider, modelId, thinkingLevel } = original.details;
+  const model = `${modelProvider}/${modelId}`;
+  const changedParent = { ...ctx, model: { provider: "opencode-go", id: "parent" } } as ExtensionToolContext;
+  const resume = { modelTier: "balanced", resumeSessionId: "selection-child" };
+  const result = await execute(resume, changedParent);
   const args = JSON.parse((result.content[0] as any).text);
   assert.ok(args.includes("--session"));
-  assert.equal(args[args.indexOf("--model") + 1], "openai-codex/gpt-6-luna");
-  assert.equal(args[args.indexOf("--thinking") + 1], "high");
-  await assert.rejects(execute({ model: "openai-codex/gpt-6-luna", thinkingLevel: "max", resumeSessionId: "selection-child" }), /must preserve/);
+  assert.equal(args[args.indexOf("--model") + 1], model);
+  assert.equal(args[args.indexOf("--thinking") + 1], thinkingLevel);
+  await assert.rejects(execute({ model, thinkingLevel: ctx.thinkingLevel, resumeSessionId: resume.resumeSessionId }), /must preserve/);
 });
 
 test("truncated output points to a readable final-response artifact in a separate block", async () => {
@@ -135,10 +146,11 @@ test("truncated output points to a readable final-response artifact in a separat
 });
 
 test("fast and deep launch their bundled thinking presets", async () => {
-  for (const [modelTier, modelId, thinkingLevel] of [["fast", "gpt-6-luna", "medium"], ["deep", "gpt-6.1-sol", "high"]]) {
+  for (const modelTier of ["fast", "deep"] as const) {
+    const { id, thinkingLevel } = presets[modelTier];
     const result = await execute({ modelTier });
     const args = JSON.parse((result.content[0] as any).text);
-    assert.equal(args[args.indexOf("--model") + 1], `openai-codex/${modelId}`);
+    assert.equal(args[args.indexOf("--model") + 1], `${provider}/${id}`);
     assert.equal(args[args.indexOf("--thinking") + 1], thinkingLevel);
     assert.equal(result.details.thinkingLevel, thinkingLevel);
   }

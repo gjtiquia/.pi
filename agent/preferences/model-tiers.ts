@@ -1,17 +1,18 @@
 // Canonical selection policy shared by subagents and Gateway cron.
 // Keep this module free of Pi runtime dependencies so it can be vendored.
+// Edit this table to change the model or thinking level for a tier.
 export const MODEL_TIERS = {
   "openai-codex": {
     fast: { id: "gpt-6-luna", thinkingLevel: "medium" },
-    balanced: { id: "gpt-6.1-sol", thinkingLevel: "medium" },
-    deep: { id: "gpt-6.1-sol", thinkingLevel: "high" },
+    balanced: { id: "gpt-6.2-sol", thinkingLevel: "medium" },
+    deep: { id: "gpt-6.2-sol", thinkingLevel: "high" },
   },
   "opencode-go": {
     fast: { id: "deepseek-v4.1-flash", thinkingLevel: "medium" },
     balanced: { id: "glm-5.3-flash", thinkingLevel: "medium" },
     deep: { id: "kimi-k3", thinkingLevel: "medium" },
   },
-} as const;
+} as const satisfies Record<string, Record<ModelTier, { id: string; thinkingLevel: ThinkingLevel }>>;
 
 export const MODEL_TIER_VALUES = ["fast", "balanced", "deep"] as const;
 export type ModelTier = (typeof MODEL_TIER_VALUES)[number];
@@ -19,12 +20,12 @@ export type RoutedModelTier = ModelTier;
 export const THINKING_LEVEL_VALUES = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const;
 export type ThinkingLevel = (typeof THINKING_LEVEL_VALUES)[number];
 
-export const MODEL_TIER_DESCRIPTION = "Execution preset bundling model and thinking within the active provider. Codex: fast = Luna medium, balanced = Luna high, deep = Sol high. Omit thinkingLevel with a tier. No inheritance or fallback.";
+export const MODEL_TIER_DESCRIPTION = "Execution preset bundling model and thinking within the active provider. Omit thinkingLevel with a tier. No inheritance or fallback.";
 export const MODEL_DESCRIPTION = "Explicit provider/model-id instead of modelTier; requires thinkingLevel and may select a different provider. Prefer tier presets unless a specific model/effort is needed.";
 export const THINKING_LEVEL_DESCRIPTION = "Required only with an explicit model; forbidden with modelTier, which bundles thinking. The selected model must support it. No inheritance or silent adjustment.";
 export const MODEL_SELECTION_GUIDANCE = [
   "Choose either modelTier alone (bundled model and thinking) or an explicit model plus thinkingLevel. Never supply thinkingLevel with modelTier. No inherit option or silent fallback. Tiers stay within the active provider; explicit provider/model-id can cross providers.",
-  "Default to balanced for scoped implementation and non-review analysis. Use fast for mechanical lookup, edits, and deterministic checks. Use deep for difficult judgment, ambiguous debugging, or architecture. Codex presets: fast = Luna medium, balanced = Luna high, deep = Sol high.",
+  "Default to balanced for scoped implementation and non-review analysis. Use fast for mechanical lookup, edits, and deterministic checks. Use deep for difficult judgment, ambiguous debugging, or architecture.",
   "Default to deep for substantive reviews, including code/PR review, both Standards and Spec axes, and architecture, design, or workflow-safety review. A narrow review scope does not justify a cheaper tier: finding omissions and challenging implementation decisions requires independent judgment. Mechanical lint, link, formatting, and discovery checks are not substantive reviews and can use fast. Honor an explicit user-requested model or tier override.",
   "Delegation often isolates context rather than outsourcing harder judgment. Keep difficult orchestration decisions in the main session and give cheaper workers bounded assignments. Prefer presets; reserve explicit model plus thinkingLevel for user-requested selections or tasks that genuinely need a specific model/effort. More thinking does not make a cheaper model equivalent to a stronger one.",
 ] as const;
