@@ -2,6 +2,8 @@
 
 Write for the plain-text editor first.
 
+Prefer a plain hyphen (`-`) over an em dash in prose.
+
 Prefer short labeled lists over tables so readers can scan without a preview.
 
 Keep source lines short. 
