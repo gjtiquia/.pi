@@ -14,3 +14,4 @@
 /agent/mcp.log*
 agent/install
 agent/bin
+/agent/crashes.json
