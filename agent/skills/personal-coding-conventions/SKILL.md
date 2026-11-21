@@ -32,6 +32,8 @@ Apply these preferences within the requested scope and the repository's explicit
   For example, declare a button's action on the button rather than wiring it up by ID in another file.
   Keep caller-specific decisions about retries, fallbacks, and error handling next to the call they govern.
   For example, let a fetch helper return an error and let the caller decide whether to serve cached data.
+  When distinct features produce the same kind of result, keep their purposes visible at the call site.
+  A shared return type alone isn’t a reason to group them.
   Extract implementation details, and centralize policy when it must apply consistently across callers.
 - **Shared behavior.** Consolidate logic that must stay synchronized behind an honestly named interface.
   Prefer a small amount of obvious repetition over abstractions that obscure the flow.
@@ -46,7 +48,7 @@ Apply these preferences within the requested scope and the repository's explicit
   Use one term per concept across commands, directories, and functions.
   Identify the data, source, and purpose. `hasNextPage` says more than `more`.
   When a name could suggest the wrong kind of value, choose a noun that hints at how to use it:
-  `notFoundOrRedirectResponse` can be returned directly; `routeDecision` suggests branching.
+  `legacyLinkResponse` can be returned directly; `routeDecision` suggests branching.
   Use `is`, `has`, or similar wording for booleans when it clarifies the condition.
   Keep short names when context suffices (`flags.Verbose`, not `flags.IsVerboseEnabled`).
 - **Visible effects and failures.** Names and interfaces should expose significant mutations and I/O.
