@@ -54,7 +54,9 @@ Apply these preferences within the requested scope and the repository's explicit
   A lookup-shaped name should not conceal persistent writes.
 - **Reading flow.** Generally put public or high-level operations before private details.
   Keep related types and helpers together when that reads better than strict top-down ordering.
-  Expand dense expressions when it helps scanning.
+  Expand dense expressions when it helps scanning. When `return helper(...)` hides a meaningful
+  before-and-after distinction, name the result before returning it. Keep the direct return
+  when the variable would only repeat the call.
 - **Blank lines mark a change of thought.** Keep declarations about the same concept together;
   leave a blank line when the subject changes. In a function or test, do the same between
   distinct steps. One blank line often communicates the boundary without a heading or comment.
