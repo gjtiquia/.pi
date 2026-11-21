@@ -45,6 +45,8 @@ Apply these preferences within the requested scope and the repository's explicit
 - **Intent in names.** Start a review with names: do they convey the operation at a glance?
   Use one term per concept across commands, directories, and functions.
   Identify the data, source, and purpose. `hasNextPage` says more than `more`.
+  When a name could suggest the wrong kind of value, choose a noun that hints at how to use it:
+  `notFoundOrRedirectResponse` can be returned directly; `routeDecision` suggests branching.
   Use `is`, `has`, or similar wording for booleans when it clarifies the condition.
   Keep short names when context suffices (`flags.Verbose`, not `flags.IsVerboseEnabled`).
 - **Visible effects and failures.** Names and interfaces should expose significant mutations and I/O.
