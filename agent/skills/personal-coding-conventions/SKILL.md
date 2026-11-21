@@ -63,7 +63,8 @@ Apply these preferences within the requested scope and the repository's explicit
   with an explicit branch. Give distinct results distinct names rather than reassigning one variable.
 - **Blank lines mark a change of thought.** Keep declarations about the same concept together;
   leave a blank line when the subject changes. In a function or test, do the same between
-  distinct steps. One blank line often communicates the boundary without a heading or comment.
+  distinct steps. Keep a lookup and its guard together. After an early return, leave a blank line
+  before the next distinct step. One blank line often communicates the boundary without a heading or comment.
 - **Existing conventions.** Match the surrounding code or document's style
   unless changing that convention is part of the task.
 
