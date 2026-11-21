@@ -59,6 +59,8 @@ Apply these preferences within the requested scope and the repository's explicit
   Expand dense expressions when it helps scanning. When `return helper(...)` hides a meaningful
   before-and-after distinction, name the result before returning it. Keep the direct return
   when the variable would only repeat the call.
+  When a result determines whether another step runs, name the result and show the decision
+  with an explicit branch. Give distinct results distinct names rather than reassigning one variable.
 - **Blank lines mark a change of thought.** Keep declarations about the same concept together;
   leave a blank line when the subject changes. In a function or test, do the same between
   distinct steps. One blank line often communicates the boundary without a heading or comment.

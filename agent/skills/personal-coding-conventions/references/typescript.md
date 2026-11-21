@@ -6,3 +6,5 @@
 - **Entry points:** When a directory owns a multi-step operation, expose the operation from `index.ts`.
   Show the order of steps there so callers need not import helpers and reconstruct the sequence.
   A single-purpose file does not need a directory or a barrel of re-exports.
+- **Value defaults:** Use `??` for defaults such as `options.timeout ?? 5000`. Prefer `if` when
+  the right-hand side performs another workflow step, such as checking access or calling `next()`.
