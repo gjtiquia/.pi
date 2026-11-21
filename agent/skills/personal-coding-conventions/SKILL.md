@@ -36,6 +36,7 @@ Apply these preferences within the requested scope and the repository's explicit
   For example, let a fetch helper return an error and let the caller decide whether to serve cached data.
   When distinct features produce the same kind of result, keep their purposes visible at the call site.
   A shared return type alone isn’t a reason to group them.
+  Keep a small, single-use rule with its caller when reading them together is clearer than navigating to a helper.
   Extract implementation details, and centralize policy when it must apply consistently across callers.
 - **Shared behavior.** Consolidate logic that must stay synchronized behind an honestly named interface.
   Prefer a small amount of obvious repetition over abstractions that obscure the flow.
