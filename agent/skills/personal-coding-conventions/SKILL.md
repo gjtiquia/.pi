@@ -23,6 +23,8 @@ Apply these preferences within the requested scope and the repository's explicit
 - **Framework and library defaults.** Start with the defaults.
   When they fall short, prefer supported configuration or extension points
   over workarounds you'll have to maintain across upgrades.
+  When behavior depends on a non-obvious framework convention, explain it briefly where the reader
+  encounters it and link to the relevant official docs.
 - **Directory layout.** Keep framework entry points where the framework expects them.
   Group the behavior they call by feature, and keep small, cohesive directories flat.
   A directory listing should show where to start, which files belong to the task,
