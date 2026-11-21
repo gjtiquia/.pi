@@ -49,6 +49,7 @@ Apply these preferences within the requested scope and the repository's explicit
   Identify the data, source, and purpose. `hasNextPage` says more than `more`.
   When a name could suggest the wrong kind of value, choose a noun that hints at how to use it:
   `legacyLinkResponse` can be returned directly; `routeDecision` suggests branching.
+  Prefer a `try` prefix when returning no result is an expected outcome.
   Use `is`, `has`, or similar wording for booleans when it clarifies the condition.
   Keep short names when context suffices (`flags.Verbose`, not `flags.IsVerboseEnabled`).
 - **Visible effects and failures.** Names and interfaces should expose significant mutations and I/O.
