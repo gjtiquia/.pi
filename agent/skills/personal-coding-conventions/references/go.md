@@ -13,6 +13,18 @@ Preserve external field names, JSON tags, headers, and cookie names when renamin
 
 ## Returns and policy
 
+- **Config-gated exceptions.** Return early for the exception so the normal path stays unindented.
+  Check the named config field beside the condition it controls. Repeat a short check from validation
+  if that makes the behavior easier to find by searching for the config field.
+
+  ```go
+  if config.AllowFixtureData && source == "fixture" {
+      return loadFixture()
+  }
+
+  return loadFromDatabase()
+  ```
+
 - **Fallible work:** Return an `error`. Name additional boolean results
   so their meaning is visible in the declaration and at the call site:
 

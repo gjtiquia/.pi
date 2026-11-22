@@ -16,6 +16,9 @@ Apply these preferences within the requested scope and the repository's explicit
 
 ## Design and placement
 
+- **Preserve adjacent workflows.** Keep existing commands, defaults, and feedback loops outside the requested scope.
+  For example, adding one service to a local stack should preserve how contributors start and reload another service.
+  If an adjacent workflow must change, explain why before editing.
 - **Simplicity > Complexity.** Prefer the simplest design that meets current requirements.
   Choose straightforward control flow and concrete implementations.
   Introduce abstraction, indirection, or configuration when it clarifies the code
@@ -47,6 +50,8 @@ Apply these preferences within the requested scope and the repository's explicit
 
 ## Names and reading flow
 
+- **Move code before rewriting it.** When extracting or relocating code, keep existing names and comments
+  unless the move makes them inaccurate. Leave unrelated cleanup out of the diff.
 - **Intent in names.** Start a review with names: do they convey the operation at a glance?
   Use one term per concept across commands, directories, and functions.
   Identify the data, source, and purpose. `hasNextPage` says more than `more`.
