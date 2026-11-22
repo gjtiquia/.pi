@@ -6,12 +6,10 @@ const DISCUSS_MODE_ENV = "PI_DISCUSS_MODE";
 const SUBAGENT_DEPTH_ENV = "PI_SUBAGENT_DEPTH";
 const BIND_CHANNEL = "pi:discuss-mode:bind:v1";
 
-const DISCUSS_MODE_INSTRUCTIONS = `At the start of each user turn, call discuss_mode_status before answering or calling any other tool. Call it again if notified that discuss mode changed. Use the fresh result as the source of truth; do not infer the current mode from earlier messages or tool results.
+const DISCUSS_MODE_CHANGED_MESSAGE = `Discuss mode changed. Call discuss_mode_status before continuing. Use the result instead of any earlier discuss-mode instructions or status results.
 
 - If on: Discuss, analyze, and inspect only. Read-only tool use is allowed. Do not use any tool to make changes.
 - If off: Follow normal session instructions.`;
-
-const DISCUSS_MODE_CHANGED_MESSAGE = "Discuss mode changed. Call discuss_mode_status again before continuing.";
 
 export default function discussModeExtension(pi: ExtensionAPI): void {
 	const isSubagent = process.env[SUBAGENT_DEPTH_ENV] !== undefined;
@@ -50,10 +48,26 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 		updateStatus(ctx);
 	}
 
-	pi.on("session_start", (event, ctx) => restoreMode(ctx, event.reason));
-	pi.on("session_tree", (_event, ctx) => restoreMode(ctx, "tree"));
+	function sendModeNotice(): void {
+		pi.sendMessage({
+			customType: DISCUSS_MODE_STATE_TYPE,
+			content: DISCUSS_MODE_CHANGED_MESSAGE,
+			display: true,
+		}, { deliverAs: "nextTurn" });
+	}
+
+	pi.on("session_start", (event, ctx) => {
+		restoreMode(ctx, event.reason);
+		if (enabled) sendModeNotice();
+	});
+	pi.on("session_tree", (_event, ctx) => {
+		const wasEnabled = enabled;
+		restoreMode(ctx, "tree");
+		if (enabled !== wasEnabled) sendModeNotice();
+	});
 	pi.on("before_agent_start", (event) => {
-		event.systemPromptOptions.sections.discuss_mode = DISCUSS_MODE_INSTRUCTIONS;
+		// Clear sections recorded by older versions when resuming a session.
+		delete event.systemPromptOptions.sections.discuss_mode;
 	});
 
 	function set(on: boolean, ctx: ExtensionContext): string {
@@ -64,11 +78,7 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 		ctx.ui.notify(enabled
 			? "Discuss mode enabled. Edit and write tool calls are blocked."
 			: "Discuss mode disabled. Edit and write tool calls are permitted.");
-		pi.sendMessage({
-			customType: DISCUSS_MODE_STATE_TYPE,
-			content: DISCUSS_MODE_CHANGED_MESSAGE,
-			display: true,
-		}, { deliverAs: "nextTurn" });
+		sendModeNotice();
 		updateStatus(ctx);
 		return status(ctx);
 	}

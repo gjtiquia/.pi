@@ -40,53 +40,58 @@ const state = (enabled: boolean, sessionId = "current") => ({
  type: "custom", customType: "discuss-mode-state", data: { sessionId, enabled },
 });
 
-test("inherited child reports active mode without a toggle message", async () => {
+test("inherited child gets a status notice without a system prompt section", async () => {
  const f = fixture({ child: true, inherited: true });
  f.handlers.get("session_start")({ reason: "startup" }, f.ctx);
  f.start();
  assert.equal((await f.status()).content[0].text, "Discuss mode: on");
- assert.equal(f.messages.length, 0);
+ assert.equal(f.messages.length, 1);
+ assert.match(f.messages[0].content, /Call discuss_mode_status before continuing/);
+ assert.equal(f.event.systemPromptOptions.sections.discuss_mode, undefined);
  assert.equal(f.handlers.get("tool_call")({ toolName: "edit" }, f.ctx).block, true);
  assert.equal(f.handlers.get("tool_call")({ toolName: "read" }, f.ctx), undefined);
  assert.equal(f.event.systemPromptOptions.sections.existing, "keep");
 });
 
-test("branch navigation changes the status result without changing the prompt", async () => {
+test("branch navigation sends a notice when the restored mode changes", async () => {
  const f = fixture({ entries: [state(true)] });
- f.start();
- const prompt = f.event.systemPromptOptions.sections.discuss_mode;
+ f.handlers.get("session_start")({ reason: "resume" }, f.ctx);
  assert.equal((await f.status()).content[0].text, "Discuss mode: on");
+ assert.equal(f.messages.length, 1);
 
  f.entries.push(state(false));
  f.handlers.get("session_tree")({}, f.ctx);
  f.start();
  assert.equal((await f.status()).content[0].text, "Discuss mode: off");
- assert.equal(f.event.systemPromptOptions.sections.discuss_mode, prompt);
+ assert.equal(f.event.systemPromptOptions.sections.discuss_mode, undefined);
  assert.equal(f.event.systemPromptOptions.sections.existing, "keep");
  assert.equal(f.handlers.get("tool_call")({ toolName: "write" }, f.ctx), undefined);
+ assert.equal(f.messages.length, 2);
+ assert.deepEqual(f.messages[1], f.messages[0]);
 });
 
-test("both toggles send the same status reminder and keep the prompt stable", async () => {
+test("normal startup is silent and both toggles send the same instructions", async () => {
  const f = fixture({ inherited: true }); // Parent sessions do not inherit child environment state.
+ f.handlers.get("session_start")({ reason: "startup" }, f.ctx);
  f.start();
- const prompt = f.event.systemPromptOptions.sections.discuss_mode;
- assert.match(prompt, /call discuss_mode_status before answering or calling any other tool/);
- assert.match(prompt, /If on:.*Read-only tool use is allowed\. Do not use any tool to make changes/);
- assert.match(prompt, /If off: Follow normal session instructions/);
+ assert.equal(f.messages.length, 0);
+ assert.deepEqual(f.event.systemPromptOptions.sections, { existing: "keep" });
  assert.equal((await f.status()).content[0].text, "Discuss mode: off");
 
  await f.command.handler("", f.ctx);
  f.start();
  assert.equal((await f.status()).content[0].text, "Discuss mode: on");
- assert.equal(f.event.systemPromptOptions.sections.discuss_mode, prompt);
+ assert.equal(f.event.systemPromptOptions.sections.discuss_mode, undefined);
 
  await f.command.handler("", f.ctx);
  f.start();
  assert.equal((await f.status()).content[0].text, "Discuss mode: off");
- assert.equal(f.event.systemPromptOptions.sections.discuss_mode, prompt);
+ assert.equal(f.event.systemPromptOptions.sections.discuss_mode, undefined);
  assert.equal(f.messages.length, 2);
  assert.equal(f.messages[0].display, true);
- assert.match(f.messages[0].content, /Call discuss_mode_status again/);
+ assert.match(f.messages[0].content, /Call discuss_mode_status before continuing/);
+ assert.match(f.messages[0].content, /If on:.*Read-only tool use is allowed\. Do not use any tool to make changes/);
+ assert.match(f.messages[0].content, /If off: Follow normal session instructions/);
  assert.deepEqual(f.messages[1], f.messages[0]);
 });
 
@@ -95,4 +100,13 @@ test("fork inherits active branch state without requiring a new toggle", async (
  f.handlers.get("session_start")({ reason: "fork" }, f.ctx);
  assert.equal((await f.status()).content[0].text, "Discuss mode: on");
  assert.equal(f.entries.at(-1).data.sessionId, "current");
+ assert.equal(f.messages.length, 1);
+});
+
+test("older discuss-mode prompt sections are cleared without adding a notice", () => {
+ const f = fixture();
+ f.event.systemPromptOptions.sections.discuss_mode = "old instructions";
+ f.start();
+ assert.deepEqual(f.event.systemPromptOptions.sections, { existing: "keep" });
+ assert.equal(f.messages.length, 0);
 });
