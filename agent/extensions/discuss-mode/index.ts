@@ -1,24 +1,17 @@
-import { Type } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 
 const DISCUSS_MODE_STATE_TYPE = "discuss-mode-state";
 const DISCUSS_MODE_ENV = "PI_DISCUSS_MODE";
 const SUBAGENT_DEPTH_ENV = "PI_SUBAGENT_DEPTH";
 const BIND_CHANNEL = "pi:discuss-mode:bind:v1";
 
-const DISCUSS_MODE_ACTIVE_MESSAGE = `[DISCUSS MODE ACTIVE]
-You are in discuss mode for exploration and analysis.
+const DISCUSS_MODE_INSTRUCTIONS = `At the start of each user turn, call discuss_mode_status before answering or calling any other tool. Call it again if notified that discuss mode changed. Use the fresh result as the source of truth; do not infer the current mode from earlier messages or tool results.
 
-Restrictions:
-- The edit and write tools are disabled
-- Other active tools remain available
-- Do not use any available tool to make changes
+- If on: Discuss, analyze, and inspect only. Read-only tool use is allowed. Do not use any tool to make changes.
+- If off: Follow normal session instructions.`;
 
-Discuss, inspect, and analyze only.`;
-
-const DISCUSS_MODE_DISABLED_MESSAGE = `[DISCUSS MODE DISABLED]
-This supersedes earlier discuss-mode instructions.
-Edit and write tool calls are permitted again. Normal coding mode is active.`;
+const DISCUSS_MODE_CHANGED_MESSAGE = "Discuss mode changed. Call discuss_mode_status again before continuing.";
 
 export default function discussModeExtension(pi: ExtensionAPI): void {
 	const isSubagent = process.env[SUBAGENT_DEPTH_ENV] !== undefined;
@@ -59,11 +52,8 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 
 	pi.on("session_start", (event, ctx) => restoreMode(ctx, event.reason));
 	pi.on("session_tree", (_event, ctx) => restoreMode(ctx, "tree"));
-	pi.on("before_agent_start", (event, ctx) => {
-		restoreMode(ctx, "startup");
-		// Prompt state follows the current branch, including inherited child sessions.
-		if (enabled) event.systemPromptOptions.sections.discuss_mode = DISCUSS_MODE_ACTIVE_MESSAGE;
-		else delete event.systemPromptOptions.sections.discuss_mode;
+	pi.on("before_agent_start", (event) => {
+		event.systemPromptOptions.sections.discuss_mode = DISCUSS_MODE_INSTRUCTIONS;
 	});
 
 	function set(on: boolean, ctx: ExtensionContext): string {
@@ -76,7 +66,7 @@ export default function discussModeExtension(pi: ExtensionAPI): void {
 			: "Discuss mode disabled. Edit and write tool calls are permitted.");
 		pi.sendMessage({
 			customType: DISCUSS_MODE_STATE_TYPE,
-			content: enabled ? DISCUSS_MODE_ACTIVE_MESSAGE : DISCUSS_MODE_DISABLED_MESSAGE,
+			content: DISCUSS_MODE_CHANGED_MESSAGE,
 			display: true,
 		}, { deliverAs: "nextTurn" });
 		updateStatus(ctx);
