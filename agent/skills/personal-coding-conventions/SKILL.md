@@ -8,6 +8,9 @@ description: Apply GJ's coding preferences when implementing, refactoring, or re
 Optimize for reviewability: understand intent at the call site without opening every helper.
 Apply these preferences within the requested scope and the repository's explicit constraints.
 
+When adding or revising a convention, state the decision that carries across projects.
+Use the smallest concrete example that makes the distinction clear. Keep project-specific advice in that project's docs.
+
 ## References
 
 - **Go:** Read [Go conventions](references/go.md) when working on Go code.
@@ -78,6 +81,10 @@ Apply these preferences within the requested scope and the repository's explicit
   unless changing that convention is part of the task.
 
 ## Review checks
+
+- **Test the distinction.** Ask what broken behavior could still pass the test and what valid change could make it fail.
+  For example, test a filter with both a matching item and a nonmatching item. Checking only that the nonmatch disappeared
+  would also pass if the filter returned nothing. If order is irrelevant, assert which items remain, not their order.
 
 - **Whole-scope passes.** For a naming, simplicity, or duplication pass, inspect the entire requested scope.
   Treat the cited example as a starting point, not the whole assignment.
