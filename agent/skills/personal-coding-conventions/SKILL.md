@@ -87,6 +87,10 @@ Use the smallest concrete example that makes the distinction clear. Keep project
   For example, test a filter with both a matching item and a nonmatching item. Checking only that the nonmatch disappeared
   would also pass if the filter returned nothing. If order is irrelevant, assert which items remain, not their order.
 
+- **Keep tests and docs stable under unrelated changes.** In tests, wait for the observable outcome rather than
+  guessing a delay. Assert exact text, counts, or order only when they are part of the behavior under test.
+  In docs, explain the workflow and how to run it. Prefer the suite command over an inventory of test names or cases.
+  Adding a case or renaming a test should not require a README edit unless the reader's workflow changes.
 - **Whole-scope passes.** For a naming, simplicity, or duplication pass, inspect the entire requested scope.
   Treat the cited example as a starting point, not the whole assignment.
   Fix concrete problems and preserve already-clear code.
