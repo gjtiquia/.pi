@@ -53,6 +53,7 @@ Use the smallest concrete example that makes the distinction clear. Keep project
 
 ## Names and reading flow
 
+- **Findability.** Name files, directories, types, and functions for the concept and role a reader will search for. Use the same established term across related names, and group related material so directory listings and search results reveal where to start and what belongs together. Prefer specific, conventional names over clever abbreviations or generic labels; add a short qualifier when it distinguishes neighboring concepts.
 - **Move code before rewriting it.** When extracting or relocating code, keep existing names and comments
   unless the move makes them inaccurate. Leave unrelated cleanup out of the diff.
 - **Intent in names.** Start a review with names: do they convey the operation at a glance?
