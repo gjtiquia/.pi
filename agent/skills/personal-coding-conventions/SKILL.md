@@ -36,6 +36,10 @@ Keep project-specific advice in that project's docs.
   - When behavior depends on a non-obvious framework convention,
     explain it briefly where the reader encounters it and link to the relevant official docs.
 
+- File length is a review signal, not a limit
+  - Around 500 lines in a source file is a warning to check cohesion. At 1,000 lines or more, look closely for responsibilities that change independently.
+  - Split where the boundary makes code easier to find and change. A parser and a formatter may deserve separate files; one cohesive grammar can stay together.
+
 - Directory layout
   - Keep framework entry points where the framework expects them.
   - Group the behavior they call by feature, and keep small, cohesive directories flat.
