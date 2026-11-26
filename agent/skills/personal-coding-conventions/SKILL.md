@@ -105,6 +105,12 @@ Keep project-specific advice in that project's docs.
   - After an early return, leave a blank line before the next distinct step.
   - One blank line often communicates the boundary without a heading or comment.
 
+- Line breaks in code comments
+  - Keep a sentence on one source line by default. Two short sentences can share a line if they express one thought.
+  - Start a new line when the thought changes, even if there is room left.
+  - Treat 132 characters as a guideline, not a limit or a width to fill.
+  - If a sentence needs a break, split after punctuation at a natural pause. If there is no such pause, keep the longer line.
+
 - Existing conventions
   - Match the surrounding code or document's style unless changing that convention is part of the task.
 
