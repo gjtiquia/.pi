@@ -55,9 +55,14 @@ Keep project-specific advice in that project's docs.
   - Keep a small, single-use rule with its caller when reading them together is clearer than navigating to a helper.
   - Extract implementation details, and centralize policy when it must apply consistently across callers.
 
-- Shared behavior
-  - Consolidate logic that must stay synchronized behind an honestly named interface.
-  - Prefer a small amount of obvious repetition over abstractions that obscure the flow.
+- Prevent behavioral drift
+  - Ask: would changing one caller's behavior without changing the other's be a bug?
+  - When callers make the same decision for the same reason, share the rule behind an interface that names the decision.
+    For example, indexing and ranking can use the same `isSearchable` rule.
+  - When components do different jobs but must agree on the result, test their agreement.
+    For example, test that a reader restores a default value omitted by a writer.
+  - Keep similar code separate when the behaviors can change independently.
+    Prefer a small amount of obvious repetition over an abstraction that obscures the flow.
 
 - Likely adjustments
   - Put values meant to be tuned by hand in named constants near the top of the file that owns the behavior.
