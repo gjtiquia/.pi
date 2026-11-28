@@ -46,6 +46,9 @@ Use [this skill’s source](../SKILL.md) as the primary example of list structur
 - Check fidelity against the version before the pass.
   - For formatting alone, compare the prose after accounting for the intended whitespace and markup changes.
   - For an editorial pass, review additions and deletions side by side for lost details, changed scope, or shifts in tone.
+  - Before replacing a guideline, identify each decision the original helps the reader make.
+    After the edit, point to the wording that still supports each decision.
+  - When new guidance adds a criterion, keep the existing criteria. If you intend to retire one, say which one and why.
 
 ## After editing Markdown
 
