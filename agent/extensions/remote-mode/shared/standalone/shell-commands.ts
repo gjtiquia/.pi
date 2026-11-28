@@ -1,14 +1,12 @@
+import { terminalReply } from "./terminal-reply.ts";
 import { SettingsManager, createLocalBashOperations } from "@earendil-works/pi-coding-agent";
 
 export const SHELL_USAGE = ["!$ <command> / !shell <command> — run a shell command in Pi's working directory (unrestricted)"];
 const MAX_OUTPUT_BYTES = 64_000;
 const TIMEOUT_SECONDS = 120;
-const SHELL_COMMAND = /^\s*!(?:\$|shell)(?=\s|$)/;
 
-export async function handleShellCommand(input: string, cwd: string, projectTrusted = false): Promise<string> {
-	const match = SHELL_COMMAND.exec(input);
-	if (!match) throw new Error("Not a remote shell command");
-	const command = input.slice(match[0].length).trim();
+export async function runShell(payload: string, cwd: string, projectTrusted = false): Promise<string> {
+	const command = payload.trim();
 	if (!command || command === "help") return `Usage:\n${SHELL_USAGE.join("\n")}`;
 
 	const output: Buffer[] = [];
@@ -32,10 +30,10 @@ export async function handleShellCommand(input: string, cwd: string, projectTrus
 				}
 			},
 		});
-		return [`${command} (exit ${exitCode})`, renderedOutput(), truncated ? "[output truncated]" : ""].filter(Boolean).join("\n");
+		return terminalReply(command, renderedOutput(), `exit ${exitCode}`, truncated);
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		const status = message === `timeout:${TIMEOUT_SECONDS}` ? `timed out after ${TIMEOUT_SECONDS}s` : `failed: ${message}`;
-		return [`${command} (${status})`, renderedOutput(), truncated ? "[output truncated]" : ""].filter(Boolean).join("\n");
+		return terminalReply(command, renderedOutput(), status, truncated);
 	}
 }

@@ -1,75 +1,69 @@
-export interface CommandDefinition {
+type Reply = string | void | AsyncIterable<string>;
+type Run = (args: string) => Reply | Promise<Reply>;
+export interface CommandResult { handled: boolean; response?: string; replies?: AsyncIterable<string> }
+
+interface CommandInfo {
 	name: string;
 	aliases?: string[];
-	/** Whether this command needs an existing Pi conversation. */
 	sessionRequired?: boolean;
 	usage: string[];
 	status?: () => string | Promise<string>;
-	/** For a single free-form prompt action (key ""), preserve internal whitespace. */
-	rawArgs?: boolean;
-	actions: Record<string, {
-		args: "none" | "required" | "optional";
-		run: (args: string) => string | void | Promise<string | void>;
-	}>;
 }
 
-export async function dispatchRemoteCommand(
-	input: string,
-	definitions: CommandDefinition[],
-): Promise<{ handled: boolean; response?: string }> {
-	const parts = input.trim().split(/\s+/).filter(Boolean);
-	if (parts.length === 0 || !parts[0].startsWith("!")) return { handled: false };
+export type CommandDefinition = CommandInfo & ({
+	/** Owns the entire payload (including literal "help" and trailing whitespace). */
+	payload: Run;
+	actions?: never;
+	rawArgs?: never;
+} | {
+	payload?: never;
+	rawArgs?: boolean;
+	actions: Record<string, { args: "none" | "required" | "optional"; description?: string; run: Run }>;
+});
 
-	const commandName = parts[0].slice(1);
-	if (commandName === "help" || commandName === "list" || commandName === "ls") {
-		const sections = await Promise.all(definitions.map(async (definition) => {
-			const status = await definition.status?.();
-			return [definition.name, ...definition.usage.map((line) => `  ${line}`), ...(status ? [`  ${status}`] : [])].join("\n");
-		}));
-		return { handled: true, response: sections.join("\n\n") };
-	}
+export function matchCommand(input: string, definitions: CommandDefinition[]) {
+	const trimmed = input.trimStart();
+	const name = /^!(\S+)/.exec(trimmed)?.[1];
+	if (!name) return;
+	const definition = definitions.find(d => d.name === name || d.aliases?.includes(name));
+	if (definition) return { definition, payload: trimmed.slice(name.length + 1).trimStart() };
+}
 
-	const definition = definitions.find(
-		(candidate) => candidate.name.replace(/^!/, "") === commandName
-			|| candidate.aliases?.some((alias) => alias.replace(/^!/, "") === commandName),
-	);
-	if (!definition) return { handled: false };
+function usage(def: CommandDefinition) {
+	const generated = Object.entries(def.actions ?? {}).flatMap(([key, action]) =>
+		action.description ? [`!${def.name}${key ? " " + key : ""} — ${action.description}`] : []);
+	return [...def.usage, ...generated];
+}
 
-	const usageAndStatus = async (): Promise<{ handled: true; response: string }> => {
-		const status = await definition.status?.();
-		return {
-			handled: true,
-			response: ["Usage:", ...definition.usage, ...(status ? [status] : [])].join("\n"),
-		};
-	};
+export function catalogHelp(definitions: CommandDefinition[]) {
+	return Promise.all(definitions.map(async def => {
+		const status = await def.status?.();
+		return [def.name, ...usage(def).map(line => "  " + line), ...(status ? ["  " + status] : [])].join("\n");
+	})).then(sections => sections.join("\n\n"));
+}
 
-	const args = parts.slice(1);
-	if (args.length === 0) {
-		const defaultOperation = definition.actions[""];
-		if (defaultOperation?.args === "none") {
-			const response = await defaultOperation.run("");
-			return typeof response === "string" ? { handled: true, response } : { handled: true };
+async function execute(run: Run, args: string): Promise<CommandResult> {
+	const reply = await run(args);
+	if (typeof reply === "string") return { handled: true, response: reply };
+	if (reply) return { handled: true, replies: reply };
+	return { handled: true };
+}
+
+export async function dispatchRemoteCommand(input: string, definitions: CommandDefinition[]): Promise<CommandResult> {
+	const match = matchCommand(input, definitions);
+	if (!match) return { handled: false };
+	const { definition, payload } = match;
+	if (definition.payload) return execute(definition.payload, payload);
+	const parts = payload.trim().split(/\s+/).filter(Boolean);
+	if (!(parts.length === 1 && parts[0] === "help")) {
+		for (const [key, action] of Object.entries(definition.actions).sort(([a], [b]) => b.length - a.length)) {
+			const words = key ? key.split(/\s+/) : [];
+			if (!words.every((word, i) => parts[i] === word)) continue;
+			const args = definition.rawArgs && !key ? payload.trim() : parts.slice(words.length).join(" ");
+			if ((action.args === "none" && args) || (action.args === "required" && !args)) break;
+			return execute(action.run, args);
 		}
-		return usageAndStatus();
 	}
-	if (args.length === 1 && args[0] === "help") return usageAndStatus();
-
-	const action = Object.keys(definition.actions)
-		.sort((a, b) => b.split(/\s+/).length - a.split(/\s+/).length || b.length - a.length)
-		.find((key) => {
-			const actionParts = key.split(/\s+/).filter(Boolean);
-			return actionParts.length <= args.length && actionParts.every((part, index) => part === args[index]);
-		});
-	if (action === undefined) return usageAndStatus();
-
-	const actionLength = action.split(/\s+/).filter(Boolean).length;
-	const actionArgs = definition.rawArgs && action === ""
-		? input.trimStart().slice(parts[0].length).trim()
-		: args.slice(actionLength).join(" ");
-	const operation = definition.actions[action];
-	if ((operation.args === "none" && actionArgs) || (operation.args === "required" && !actionArgs)) {
-		return usageAndStatus();
-	}
-	const response = await operation.run(actionArgs);
-	return typeof response === "string" ? { handled: true, response } : { handled: true };
+	const status = await definition.status?.();
+	return { handled: true, response: ["Usage:", ...usage(definition), ...(status ? [status] : [])].join("\n") };
 }

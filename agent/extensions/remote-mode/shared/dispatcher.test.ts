@@ -3,7 +3,8 @@ import { test } from "node:test";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { classifySharedCommand, createCommandDispatcher, type CommandHost } from "./index.js";
+import { dispatchRemoteCommand } from "./core/command-router.js";
+import { registerSharedCommands, classifySharedCommand, createCommandDispatcher, type CommandHost } from "./index.js";
 
 function fixture() {
  const sent: unknown[] = [];
@@ -46,6 +47,65 @@ test("shared dispatcher owns routing, catalog composition and unknown fallback",
  assert.equal((await dispatch("!model status")).response, "Model: test/one\nThinking: low");
 });
 
+test("!diff all routes to file replies rather than usage", async () => {
+ const dispatch = createCommandDispatcher(fixture().host);
+ const help = await dispatch("!diff help");
+ assert.match(help.response!, /Usage:/);
+ assert.deepEqual(await dispatch("!diff"), help);
+ const all = await dispatch("!diff all");
+ assert.equal(all.handled, true);
+ assert.ok(all.replies);
+ assert.equal(all.response, undefined);
+});
+
+test("every registered command and alias resolves its actions without invoking live handlers", async () => {
+ const definitions = registerSharedCommands(fixture().host);
+ for (const def of definitions) {
+  const routes = def.payload ? [""] : Object.keys(def.actions);
+  assert.ok(routes.length, `!${def.name} advertises no executable route`);
+  for (const name of [def.name, ...(def.aliases ?? [])]) {
+   for (const route of routes) {
+    for (const sep of [" ", "  ", "\t"]) {
+     const args = def.payload || def.actions[route].args === "required" ? ["sample"] : [];
+     const input = ["!" + name, ...route.split(" ").filter(Boolean), ...args].join(sep);
+     const probe = def.payload ? { ...def, payload: () => "payload" } : {
+      ...def, actions: Object.fromEntries(Object.entries(def.actions).map(([key, action]) =>
+       [key, { ...action, run: () => "action:" + key }])),
+     };
+     const result = await dispatchRemoteCommand(input, [probe]);
+     assert.equal(result.response, def.payload ? "payload" : "action:" + route, input);
+    }
+   }
+  }
+ }
+});
+
+test("catalog alone routes diff all for each separator and rejects extra words", async () => {
+ const defs = registerSharedCommands(fixture().host);
+ for (const sep of [" ", "   ", "\t", "\n"]) {
+  assert.ok((await dispatchRemoteCommand("!diff" + sep + "all", defs)).replies);
+ }
+ assert.match((await dispatchRemoteCommand("!diff all extra", defs)).response!, /Usage:/);
+});
+
+test("a host-local action can stream ordered replies through an alias", async () => {
+ const dispatch = createCommandDispatcher(fixture().host, [{ name: "example", aliases: ["ex"], usage: [], actions: {
+  "show all": {args: "none", run: async function* () { yield "first"; yield "second"; }},
+ } }]);
+ const result = await dispatch("!ex  show\tall");
+ assert.ok(result.replies);
+ assert.deepEqual(await Array.fromAsync(result.replies), ["first", "second"]);
+});
+
+test("free-form payloads preserve literal help, shell quotes, and skill prompt spacing", async () => {
+ const f = fixture(); const dispatch = createCommandDispatcher(f.host);
+ await dispatch("!queue help");
+ await dispatch("!skill review   a\n  b  ");
+ assert.deepEqual(f.sent, [["help", { deliverAs: "followUp" }], ["/skill:review   a\n  b  ", { deliverAs: "followUp", expandPromptTemplates: true }]]);
+ assert.match((await dispatch("!$ printf '%s' 'a  b'")).response!, /\na  b\n/);
+ assert.deepEqual(await dispatch("!diffusion all"), {handled: false});
+});
+
 test("bare status returns live diagnostics without a model turn", async () => {
  const { host } = fixture();
  host.status = () => "State: RUNNING for 42s";
@@ -57,7 +117,7 @@ test("bare status returns live diagnostics without a model turn", async () => {
 
 test("bare ram returns host status without a session or model turn", async () => {
  const dispatch = createCommandDispatcher(fixture().host);
- assert.match((await dispatch("!ram")).response!, /^RAM: .* available\. Swap: /);
+ assert.match((await dispatch("!ram")).response!, process.platform === "linux" ? /^RAM: .* available\. Swap: / : /^RAM status unavailable/);
  assert.match((await dispatch("!ram extra")).response!, /Usage:\n!ram/);
 });
 

@@ -477,6 +477,10 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 	async function postReply(ctx: ExtensionContext, text: string): Promise<void> {
 		if (!config) throw new Error("Mattermost remote mode is not configured");
 		const rootId = await ensureRootPost(ctx);
+		if (text.length <= MAX_REPLY_CHARS) {
+			await api<MattermostPost>("/posts", { method: "POST", body: JSON.stringify({ channel_id: config.channelId, root_id: rootId, message: text }) });
+			return;
+		}
 		const lines = text.split("\n");
 		let chunk = "";
 		for (const line of lines) {
@@ -689,6 +693,7 @@ export default function remoteModeExtension(pi: ExtensionAPI): void {
 		const result = await createCommandDispatcher(host, commandDefinitions(ctx))(message);
 		if (!result.handled) return false;
 		if (result.response) await postReply(ctx, result.response);
+		if (result.replies) for await (const reply of result.replies) await postReply(ctx, reply);
 		return true;
 	}
 

@@ -1,3 +1,4 @@
+import { terminalReply } from "./terminal-reply.ts";
 import { spawn } from "node:child_process";
 
 export const GIT_USAGE = ["!git <args> — run Git in Pi's working directory (unrestricted)"];
@@ -36,10 +37,10 @@ export function parseGitArgs(input: string): string[] {
 	return args;
 }
 
-export async function handleGitCommand(input: string, cwd: string): Promise<string> {
+export async function runGit(payload: string, cwd: string): Promise<string> {
 	let args: string[];
 	try {
-		args = parseGitArgs(input.replace(/^\s*!git(?=\s|$)/, ""));
+		args = parseGitArgs(payload);
 	} catch (error) {
 		return `${(error as Error).message}. Usage: ${GIT_USAGE[0]}`;
 	}
@@ -78,7 +79,7 @@ export async function handleGitCommand(input: string, cwd: string): Promise<stri
 			const status = spawnError ? `failed: ${spawnError.message}`
 				: timedOut ? `timed out after ${TIMEOUT_MS / 1000}s`
 				: signal ? `signal ${signal}` : `exit ${code}`;
-			resolve([`git ${args.join(" ")} (${status})`, result, truncated ? "[output truncated]" : ""].filter(Boolean).join("\n"));
+			resolve(terminalReply(`git ${payload.trim()}`, result, status, truncated));
 		});
 	});
 }

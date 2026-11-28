@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { dispatchRemoteCommand } from "./command-router.ts";
+import { catalogHelp, dispatchRemoteCommand, type CommandDefinition } from "./command-router.ts";
 
 test("optional session title preserves spaces and allows an unnamed session", async () => {
 	const titles: string[] = [];
@@ -27,8 +27,8 @@ test("free-form action preserves multiline prompts without treating prompt words
 });
 
 test("list and ls show the same complete catalog as help", async () => {
-	const definitions = [
-		{ name: "help", aliases: ["list", "ls"], usage: ["!help / !list / !ls"], actions: {} },
+	const definitions: CommandDefinition[] = [
+		{ name: "help", aliases: ["list", "ls"], usage: ["!help / !list / !ls"], payload: () => catalogHelp(definitions) },
 		{ name: "stop", aliases: ["abort"], usage: ["!stop / !abort"], actions: {} },
 		{ name: "queue", usage: ["!queue <prompt>"], actions: {} },
 	];

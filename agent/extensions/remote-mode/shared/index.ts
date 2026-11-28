@@ -1,10 +1,11 @@
-import { dispatchRemoteCommand, type CommandDefinition } from "./core/command-router.js";
-import { handleAgentCommand, STOP_USAGE, QUEUE_USAGE, STEER_USAGE } from "./hosted/agent-commands.js";
-import { handleSkillCommand, SKILL_USAGE } from "./hosted/skill-commands.js";
+import { catalogHelp, dispatchRemoteCommand, matchCommand, type CommandResult, type CommandDefinition } from "./core/command-router.js";
+import { stopAgent, sendAgentPrompt, STOP_USAGE, QUEUE_USAGE, STEER_USAGE } from "./hosted/agent-commands.js";
+import { runSkill, SKILL_USAGE } from "./hosted/skill-commands.js";
 import { handleModelCommand } from "./hosted/model-commands.js";
 import { tokenStatus } from "./hosted/token-commands.js";
-import { handleGitCommand, GIT_USAGE } from "./standalone/git-commands.js";
-import { handleShellCommand, SHELL_USAGE } from "./standalone/shell-commands.js";
+import { runGit, GIT_USAGE } from "./standalone/git-commands.js";
+import { runShell, SHELL_USAGE } from "./standalone/shell-commands.js";
+import { diffReplies } from "./standalone/diff-replies.js";
 import { ramStatus } from "./standalone/ram-commands.js";
 import type { CommandHost } from "./host.js";
 
@@ -25,14 +26,11 @@ export type {
  LastRunStatus,
  StatusRenderOptions,
 } from "./activity/status-tracker.js";
-export interface CommandResult { handled: boolean; response?: string }
+export type { CommandResult } from "./core/command-router.js";
 
 /** Classify from the same catalog used to dispatch, so hosts need no command-name list. */
 export function classifySharedCommand(input: string): "standalone" | "session" | undefined {
- const name = /^!(\S+)/.exec(input.trimStart())?.[1];
- if (!name) return;
- // Catalog construction only captures the host; it never invokes a capability.
- const definition = registerSharedCommands({} as CommandHost).find(item => item.name === name || item.aliases?.includes(name));
+ const definition = matchCommand(input, registerSharedCommands({} as CommandHost))?.definition;
  return definition ? definition.sessionRequired ? "session" : "standalone" : undefined;
 }
 
@@ -40,13 +38,13 @@ export function classifySharedCommand(input: string): "standalone" | "session" |
 export function registerSharedCommands(host: CommandHost, local: CommandDefinition[] = []): CommandDefinition[] {
  const model = (input: string) => handleModelCommand(input, host.model);
  const tokens = () => tokenStatus(host.tokens());
- return [
-  { name: "help", aliases: ["list", "ls"], usage: ["!help / !list / !ls — list all commands"], actions: {} },
+ const definitions: CommandDefinition[] = [
+  { name: "help", aliases: ["list", "ls"], usage: ["!help / !list / !ls — list all commands"], payload: () => catalogHelp(definitions) },
   { name: "status", sessionRequired: true, usage: ["!status — show live session activity diagnostics"],
    actions: { "": { args: "none", run: () => host.status?.() ?? "Session status unavailable." } } },
-  { name: "stop", aliases: ["abort"], sessionRequired: true, usage: STOP_USAGE, actions: {} },
-  { name: "queue", sessionRequired: true, usage: QUEUE_USAGE, actions: {} },
-  { name: "steer", sessionRequired: true, usage: STEER_USAGE, actions: {} },
+  { name: "stop", aliases: ["abort"], sessionRequired: true, usage: STOP_USAGE, actions: { "": { args: "none", run: () => stopAgent(host) } } },
+  { name: "queue", sessionRequired: true, usage: QUEUE_USAGE, payload: args => sendAgentPrompt("queue", args, host) },
+  { name: "steer", sessionRequired: true, usage: STEER_USAGE, payload: args => sendAgentPrompt("steer", args, host) },
   { name: "compact", aliases: ["compress"], sessionRequired: true,
    usage: ["!compact / !compress — usage", "!compact this / !compress this — compact this Pi session"],
    actions: { this: { args: "none", run: async () => {
@@ -59,10 +57,13 @@ export function registerSharedCommands(host: CommandHost, local: CommandDefiniti
     }
    } } },
   },
-  { name: "git", usage: GIT_USAGE, actions: {} },
-  { name: "shell", aliases: ["$"], usage: SHELL_USAGE, actions: {} },
-  { name: "ram", usage: ["!ram — RAM usage on this host"], actions: {} },
-  { name: "skill", sessionRequired: true, usage: SKILL_USAGE, actions: {} },
+  { name: "diff", usage: ["!diff / !diff help — usage"], actions: { all: { args: "none", description: "post changes file by file", run: () => diffReplies(host.cwd) } } },
+  { name: "git", usage: GIT_USAGE, payload: args => runGit(args, host.cwd) },
+  { name: "shell", aliases: ["$"], usage: SHELL_USAGE, payload: args => runShell(args, host.cwd, host.projectTrusted) },
+  { name: "ram", usage: ["!ram — RAM usage on this host"], actions: { "": { args: "none", run: ramStatus } } },
+  { name: "skill", sessionRequired: true, usage: SKILL_USAGE, payload: args => runSkill(args, host.getSkills(), prompt => host.sendUserMessage(prompt, {
+    ...(host.isIdle() ? {} : { deliverAs: "followUp" as const }), expandPromptTemplates: true,
+   })) },
   { name: "discuss", sessionRequired: true, usage: ["!discuss — help + status", "!discuss status", "!discuss on", "!discuss off"],
    status: () => host.discuss?.status() ?? "Discuss mode unavailable.", actions: {
     status: { args: "none", run: () => host.discuss?.status() ?? "Discuss mode unavailable." },
@@ -78,20 +79,11 @@ export function registerSharedCommands(host: CommandHost, local: CommandDefiniti
   } },
   ...local,
  ];
+ return definitions;
 }
 
 /** One host adapter per bound session; the caller owns transport and unknown fallback. */
 export function createCommandDispatcher(host: CommandHost, local: CommandDefinition[] = []): (input: string) => Promise<CommandResult> {
  const definitions = registerSharedCommands(host, local);
- return async (input) => {
-  const agent = handleAgentCommand(input, host);
-  if (agent.handled) return agent;
-  if (/^!skill(?=\s|$)/.test(input.trimStart())) return handleSkillCommand(input, host.getSkills(), (prompt) => host.sendUserMessage(prompt, {
-   ...(host.isIdle() ? {} : { deliverAs: "followUp" as const }), expandPromptTemplates: true,
-  }));
-  if (/^!ram\s*$/.test(input.trim())) return { handled: true, response: await ramStatus() };
-  if (/^!git(?=\s|$)/.test(input.trimStart())) return { handled: true, response: await handleGitCommand(input, host.cwd) };
-  if (/^!(?:\$|shell)(?=\s|$)/.test(input.trimStart())) return { handled: true, response: await handleShellCommand(input, host.cwd, host.projectTrusted) };
-  return dispatchRemoteCommand(input, definitions);
- };
+ return input => dispatchRemoteCommand(input, definitions);
 }

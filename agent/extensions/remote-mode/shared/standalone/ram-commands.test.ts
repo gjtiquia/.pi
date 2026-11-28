@@ -40,5 +40,9 @@ test("tmux aggregates pane descendants, subagents, windows, sessions and the sha
 });
 
 test("RAM status can read this host", async () => {
+ if (process.platform !== "linux") {
+  assert.equal(await ramStatus(), "RAM status unavailable (requires Linux /proc/meminfo).");
+  return;
+ }
  assert.match(await ramStatus(), /^RAM: \d+\.\d GiB \/ \d+\.\d GiB[\s\S]*Tmux/);
 });

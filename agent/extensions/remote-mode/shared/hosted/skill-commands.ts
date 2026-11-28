@@ -20,38 +20,32 @@ function formatSkills(skills: SkillCommand[]): string {
 	return skills.map((skill) => skill.name).join("\n");
 }
 
-export function handleSkillCommand(
-	message: string,
+export function runSkill(
+	payload: string,
 	commands: SkillCommand[],
 	send: (message: string) => void,
-): { handled: boolean; response?: string } {
-	const input = message.trimStart();
-	const match = /^!skill(?=\s|$)(?:\s+(\S+))?/.exec(input);
-	if (!match) return { handled: false };
+): string | void {
+	const input = payload.trimStart();
+	const name = /^\S+/.exec(input)?.[0];
+	if (!name || name === "help") return usage();
 
-	const name = match[1];
-	const rest = input.slice(match[0].length);
-	if (!name || name === "help") return { handled: true, response: usage() };
+	const rest = input.slice(name.length);
 
 	const skills = commands.filter((command) => command.source === "skill")
 		.map((command) => ({ ...command, name: command.name.replace(/^skill:/, "") }))
 		.sort((a, b) => a.name.localeCompare(b.name));
-	if (name === "list") return { handled: true, response: rest.trim() ? usage() : formatSkills(skills) };
+	if (name === "list") return rest.trim() ? usage() : formatSkills(skills);
 	if (name === "search" || name === "filter") {
 		const keywords = rest.trim().toLowerCase().split(/\s+/).filter(Boolean);
-		if (!keywords.length) return { handled: true, response: usage() };
-		return {
-			handled: true,
-			response: formatSkills(skills.filter((skill) => {
-				const text = `${skill.name} ${skill.description ?? ""}`.toLowerCase();
-				return keywords.every((keyword) => text.includes(keyword));
-			})),
-		};
+		if (!keywords.length) return usage();
+		return formatSkills(skills.filter((skill) => {
+			const text = `${skill.name} ${skill.description ?? ""}`.toLowerCase();
+			return keywords.every((keyword) => text.includes(keyword));
+		}));
 	}
 
 	const skill = skills.find((candidate) => candidate.name === name);
-	if (!skill) return { handled: true, response: `Unknown skill: ${name}. Use !skill search <keywords> or !skill list.` };
+	if (!skill) return `Unknown skill: ${name}. Use !skill search <keywords> or !skill list.`;
 	const prompt = rest.replace(/^\s/, "");
 	send(`/skill:${skill.name}${prompt.trim() ? ` ${prompt}` : ""}`);
-	return { handled: true };
 }
